@@ -1,17 +1,23 @@
 # Providers
 
-The extension selects a provider family from the authenticated model's
-provider id, API id, and base URL. Each adapter owns one family's request shape,
-authentication, stream parsing, and error behavior.
+The extension selects an adapter from the authenticated model's provider id,
+API id, and base URL. We natively support **10 distinct provider classes** (plus
+Anthropic Messages), each mapped to its native request shape, authentication,
+stream parsing, and error behavior:
 
-| Family | Detection | Search | URL analysis | Interface |
-| --- | --- | --- | --- | --- |
-| DeepSeek | provider `deepseek` | Yes | Yes | Native `/v1/tools/search`, `/v1/tools/fetch` |
-| Ollama | provider `ollama-cloud` or host `ollama.com` | Yes | Yes | `/api/web_search`, `/api/web_fetch` |
-| Google | api `google-generative-ai`, provider/api `antigravity` | Yes | Yes | `google_search`, `url_context` |
-| OpenAI | api `openai-responses`, `azure-openai-responses`, `openai-codex-responses` | Yes | No | Responses `web_search` |
-| xAI | provider `xai` with `openai-responses` | Yes | No | Responses `web_search` |
-| Anthropic | api `anthropic-messages` | Yes | No | Messages `web_search` |
+| # | Provider Class | Detection | Search | URL Analysis | Interface & Endpoint |
+|:---:|---|---|:---:|:---:|---|
+| 1 | **DeepSeek** | provider `deepseek` | Yes | Yes | Native REST `/v1/tools/search`, `/v1/tools/fetch` |
+| 2 | **Google Gemini** | api `google-generative-ai` | Yes | Yes | SSE `google_search`, `url_context` |
+| 3 | **Google Antigravity** | provider/api `antigravity` | Yes | Yes | Antigravity enterprise Vertex endpoint & wrapper |
+| 4 | **Ollama Cloud** | provider `ollama-cloud` or host `ollama.com` | Yes | Yes | Hosted REST `/api/web_search`, `/api/web_fetch` |
+| 5 | **OpenAI** | api `openai-responses` | Yes | No | Responses API `web_search` |
+| 6 | **Azure OpenAI** | api `azure-openai-responses` | Yes | No | Azure Responses API `/responses` |
+| 7 | **OpenAI Codex** | api `openai-codex-responses` | Yes | No | Codex `/codex/responses` & account tokens |
+| 8 | **GitHub Copilot** | Copilot provider/token with Responses | Yes | No | Copilot Responses with token routing & proxy endpoints |
+| 9 | **OpenCode** | OpenCode provider with Responses | Yes | No | Responses API with Pi session tracking headers |
+| 10 | **xAI (Grok)** | provider `xai` or model `grok*` with Responses | Yes | No | Grok dialect Responses (`action.sources`) |
+| * | **Anthropic Messages** | api `anthropic-messages` | Yes | No | Messages API `web_search_20260209` tool & OAuth |
 
 A model whose API is `openai-completions` is not search-capable unless it is
 served by DeepSeek or Ollama Cloud. A local Ollama daemon is not supported;
@@ -207,10 +213,10 @@ a per-URL error.
 
 ## Adding a provider
 
-1. Add a family to `src/providers/types.ts` if it is genuinely new.
-2. Create `src/providers/<family>.ts` exporting a `ProviderAdapter`.
-3. Register it in `src/providers/index.ts`.
-4. Add family detection in `src/families.ts`.
+1. Add a family to `lib/providers/types.ts` if it is genuinely new.
+2. Create `lib/providers/<family>.ts` exporting a `ProviderAdapter`.
+3. Register it in `lib/providers/index.ts`.
+4. Add family detection in `lib/families.ts`.
 5. Add tests for request shape, auth/header preservation, raw result
    preservation, search evidence, errors, aborts, and URL behavior.
 6. Update this document, `README.md`, and `CHANGELOG.md`.

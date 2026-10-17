@@ -4,11 +4,11 @@ import {
   hasExposedCandidate,
   hasUrlCandidate,
   resolveResolutionContext,
-} from "./candidates.ts";
-import { buildWebSearchSchema, buildWebSearchToolDescription, WEB_SEARCH_TOOL_NAME } from "./schema.ts";
-import { runWebSearch } from "./search.ts";
+} from "../lib/candidates.ts";
+import { buildWebSearchSchema, buildWebSearchToolDescription, WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
+import { runWebSearch } from "../lib/search.ts";
 
-export { WEB_SEARCH_TOOL_NAME } from "./schema.ts";
+export { WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
 
 export function createWebSearchToolManager(
   pi: Pick<ExtensionAPI, "registerTool" | "getActiveTools" | "setActiveTools">,

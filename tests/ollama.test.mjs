@@ -7,12 +7,12 @@ import {
   ollamaCloudModel,
   withEnv,
 } from "./helpers.mjs";
-import { getProviderFamily } from "../src/families.ts";
+import { getProviderFamily } from "../lib/families.ts";
 import {
   OLLAMA_SEARCH_MAX_RESULTS,
   ollamaAdapter,
   resolveOllamaApiRoot,
-} from "../src/providers/ollama.ts";
+} from "../lib/providers/ollama.ts";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {

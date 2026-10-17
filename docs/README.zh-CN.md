@@ -6,7 +6,7 @@
 `web_search`。它使用各家 provider 的原生搜索接口，在可用 provider 支持时
 分析 URL，自动在已登录的 provider 之间切换，并把 provider 数据原样返回。
 
-[English](../README.md) · [架构说明](architecture.md) · [Provider 细节](providers.md) · [测试](testing.md) · [源码](../src/index.ts)
+[English](../README.md) · [架构说明](architecture.md) · [Provider 细节](providers.md) · [测试](testing.md) · [源码](../extensions/index.ts)
 
 ![pi-better-web-search 架构](https://raw.githubusercontent.com/zhexusun10/pi-better-web-search/main/assets/architecture.svg)
 
@@ -81,28 +81,34 @@ provider 都失败时，工具返回错误（`isError: true`），不会静默�
 
 ## Provider 支持
 
-| Provider / family | 网页搜索 | URL 分析 | 原生接口 |
-| --- | --- | --- | --- |
-| DeepSeek | 是 | 是 | 原生 Search/Fetch：`/v1/tools/search`、`/v1/tools/fetch` |
-| Ollama Cloud | 是 | 是 | `/api/web_search`、`/api/web_fetch` |
-| Google Gemini / Antigravity | 是 | 是 | `google_search` grounding 和 `url_context` |
-| OpenAI / Azure / Codex / Copilot / OpenCode | 是 | 否 | Responses API `web_search` |
-| xAI Grok | 是 | 否 | Responses API `web_search` |
-| Anthropic Messages | 是 | 否 | Messages `web_search` server tool |
+`pi-better-web-search` 原生支持 **10 类主流 Provider**（及 Anthropic Messages），通过各家原生 API 协议接入，兼具最原汁原味的模型能力与极速体验：
+
+| # | Provider 类别 | 网页搜索 | URL 分析 | 原生协议与端点接口 |
+|:---:|---|:---:|:---:|---|
+| 1 | **DeepSeek** | 是 | 是 | 原生 REST `/v1/tools/search` 与 `/v1/tools/fetch` |
+| 2 | **Google Gemini** | 是 | 是 | `google-generative-ai` SSE `google_search` 与 `url_context` |
+| 3 | **Google Antigravity** | 是 | 是 | Antigravity 企业级 Vertex 端点与专属包装体 |
+| 4 | **Ollama Cloud** | 是 | 是 | 托管独立 REST `/api/web_search` 与 `/api/web_fetch`（`ollama.com`） |
+| 5 | **OpenAI** | 是 | 否 | 官方 Responses API `web_search` 工具（`openai-responses`） |
+| 6 | **Azure OpenAI** | 是 | 否 | Azure Responses API 专用端点（`azure-openai-responses`） |
+| 7 | **OpenAI Codex** | 是 | 否 | 专有 `/codex/responses` 端点，支持 Codex 账号 Token 与 Originator 协议 |
+| 8 | **GitHub Copilot** | 是 | 否 | Copilot 鉴权凭证路由与兼容代理端点 Responses 搜索 |
+| 9 | **OpenCode** | 是 | 否 | 携带 Pi 会话追踪请求头的 Responses 搜索 |
+| 10 | **xAI (Grok)** | 是 | 否 | 原生 Grok 方言 Responses API（`web_search_call.action.sources`） |
+| * | **Anthropic Messages** | 是 | 否 | Messages API `web_search_20260209` 工具及 Claude Code OAuth 凭据 |
 
 只有至少一个可用接口支持 URL 分析时，`urls` 才会暴露。例如：当前模型是
 OpenAI 且只有 OpenAI 凭据时，schema 只有 `query`；同一会话只要还有
-DeepSeek、Ollama Cloud 或 Google 凭据，就会出现 `urls`。
+DeepSeek、Google Gemini、Antigravity 或 Ollama Cloud 凭据，就会出现 `urls`。
 
 Provider 识别顺序：
 
-1. `deepseek` provider
-2. Antigravity 或 Google Generative AI
+1. `deepseek` provider（DeepSeek 原生 search/fetch）
+2. Antigravity 或 Google Generative AI（Google Gemini 与 Google Antigravity）
 3. Ollama Cloud（`ollama-cloud` provider，或 host 精确为 `ollama.com`）
-4. xAI + `openai-responses`
-5. OpenAI-compatible Responses API（`openai-responses`、
-   `azure-openai-responses`、`openai-codex-responses`）
-6. Anthropic Messages
+4. xAI + `openai-responses`（xAI Grok）
+5. OpenAI-compatible Responses API（OpenAI、Azure OpenAI、OpenAI Codex、GitHub Copilot、OpenCode）
+6. Anthropic Messages（Claude）
 
 各 provider 的请求形状、鉴权细节和 URL 支持见 [Provider 细节](providers.md)。
 

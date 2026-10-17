@@ -80,7 +80,7 @@ search and a real DeepSeek credential:
    PI_BETTER_WEB_SEARCH_CACHE=/tmp/pi-bws-e2e/cache.json \
    pi --no-session --print --mode json \
      --provider mock-chat --model mock-chat/mock-chat-model \
-     -e ./src/index.ts "please search the web"
+     -e ./extensions/index.ts "please search the web"
    ```
 
 5. Inspect the second model request. The tool result must be valid raw JSON with

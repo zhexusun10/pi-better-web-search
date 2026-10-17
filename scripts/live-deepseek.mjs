@@ -32,8 +32,8 @@ const cacheDir = mkdtempSync(join(tmpdir(), "pi-bws-live-deepseek-"));
 process.env.PI_BETTER_WEB_SEARCH_CACHE = join(cacheDir, "cache.json");
 process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS ||= "1000000";
 
-const { deepseekAdapter } = await import("../src/providers/deepseek.ts");
-const { runWebSearch } = await import("../src/search.ts");
+const { deepseekAdapter } = await import("../lib/providers/deepseek.ts");
+const { runWebSearch } = await import("../lib/search.ts");
 
 const deepseek = {
   id: "deepseek-chat",

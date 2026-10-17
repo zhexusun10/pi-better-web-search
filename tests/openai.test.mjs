@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { openaiAdapter, xaiAdapter } from "../src/providers/openai.ts";
+import { openaiAdapter, xaiAdapter } from "../lib/providers/openai.ts";
 import {
   createMockCtx,
   createModel,

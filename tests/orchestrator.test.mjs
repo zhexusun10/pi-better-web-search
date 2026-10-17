@@ -10,10 +10,10 @@ import {
   withTempCache,
 } from "./helpers.mjs";
 
-import { readCache, writeCache, fingerprintAvailableModels } from "../src/cache.ts";
-import { MAX_OUTPUT_CHARS } from "../src/format.ts";
-import { ADAPTERS } from "../src/providers/index.ts";
-import { parseWebSearchInput, runWebSearch } from "../src/search.ts";
+import { readCache, writeCache, fingerprintAvailableModels } from "../lib/cache.ts";
+import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
+import { ADAPTERS } from "../lib/providers/index.ts";
+import { parseWebSearchInput, runWebSearch } from "../lib/search.ts";
 
 async function withAdapterPatch(patches, fn) {
   const originals = [];

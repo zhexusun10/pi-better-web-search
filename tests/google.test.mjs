@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { googleAdapter } from "../src/providers/google.ts";
+import { googleAdapter } from "../lib/providers/google.ts";
 import { createMockCtx, googleModel, withEnv } from "./helpers.mjs";
 
 function sse(events) {

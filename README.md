@@ -8,12 +8,12 @@ provider supports it, automatically falls back across authenticated providers,
 and returns provider data as-is.
 
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/badge/npm-v0.1.0-blue)](https://www.npmjs.com/package/pi-better-web-search)
+[![npm](https://img.shields.io/badge/npm-v0.1.1-blue)](https://www.npmjs.com/package/pi-better-web-search)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Pi 1.3](https://img.shields.io/badge/Pi-1.3-blue.svg)](https://pi.dev)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
 
-[简体中文](docs/README.zh-CN.md) · [Architecture](docs/architecture.md) · [Providers](docs/providers.md) · [Testing](docs/testing.md) · [Source](src/index.ts)
+[简体中文](docs/README.zh-CN.md) · [Architecture](docs/architecture.md) · [Providers](docs/providers.md) · [Testing](docs/testing.md) · [Source](extensions/index.ts)
 
 ![pi-better-web-search architecture](https://raw.githubusercontent.com/zhexusun10/pi-better-web-search/main/assets/architecture.svg)
 
@@ -99,14 +99,21 @@ invalid URLs alongside valid work are reported in the `fetched` entries.
 
 ## Provider support
 
-| Provider / family | Web search | URL analysis | Native interface |
-| --- | --- | --- | --- |
-| DeepSeek | Yes | Yes | Native Search and Fetch: `/v1/tools/search`, `/v1/tools/fetch` |
-| Ollama Cloud | Yes | Yes | `/api/web_search`, `/api/web_fetch` |
-| Google Gemini / Antigravity | Yes | Yes | `google_search` grounding and `url_context` |
-| OpenAI / Azure / Codex / Copilot / OpenCode | Yes | No | Responses API `web_search` tool |
-| xAI Grok | Yes | No | Responses API `web_search` tool |
-| Anthropic Messages | Yes | No | `web_search` server tool |
+`pi-better-web-search` natively supports **10 distinct provider classes** (plus Anthropic Messages), automatically detecting authenticated credentials and routing each call through native provider protocols:
+
+| # | Provider Class | Web Search | URL Analysis | Native Protocol & Endpoint |
+|:---:|---|:---:|:---:|---|
+| 1 | **DeepSeek** | Yes | Yes | Native REST `/v1/tools/search` & `/v1/tools/fetch` |
+| 2 | **Google Gemini** | Yes | Yes | `google-generative-ai` SSE `google_search` grounding & `url_context` |
+| 3 | **Google Antigravity** | Yes | Yes | Antigravity enterprise Vertex endpoint & wrapper body |
+| 4 | **Ollama Cloud** | Yes | Yes | Hosted REST `/api/web_search` & `/api/web_fetch` (`ollama.com`) |
+| 5 | **OpenAI** | Yes | No | Official Responses API `web_search` tool (`openai-responses`) |
+| 6 | **Azure OpenAI** | Yes | No | Azure Responses API (`azure-openai-responses`) |
+| 7 | **OpenAI Codex** | Yes | No | Specialized `/codex/responses` with Codex account tokens & headers |
+| 8 | **GitHub Copilot** | Yes | No | Responses routing with Copilot auth tokens & proxy endpoints |
+| 9 | **OpenCode** | Yes | No | Responses routing with Pi session tracking headers |
+| 10 | **xAI (Grok)** | Yes | No | Grok dialect Responses API (`web_search_call.action.sources`) |
+| * | **Anthropic Messages** | Yes | No | Messages API `web_search_20260209` tool & Claude Code OAuth |
 
 URL analysis is only exposed when at least one usable interface supports it.
 For example, a current OpenAI model with only OpenAI credentials gets a
@@ -115,13 +122,12 @@ credentials also gets `urls`.
 
 Provider detection follows the authenticated model's provider/API:
 
-1. `deepseek` provider
-2. Antigravity or Google Generative AI
+1. `deepseek` provider (DeepSeek native search/fetch)
+2. Antigravity or Google Generative AI (Google Gemini & Google Antigravity)
 3. Ollama Cloud (`ollama-cloud` provider or exact `ollama.com` host)
-4. xAI with `openai-responses`
-5. OpenAI-compatible Responses APIs (`openai-responses`,
-   `azure-openai-responses`, `openai-codex-responses`)
-6. Anthropic Messages
+4. xAI with `openai-responses` (xAI Grok)
+5. OpenAI-compatible Responses APIs (OpenAI, Azure OpenAI, OpenAI Codex, GitHub Copilot, OpenCode)
+6. Anthropic Messages (Claude)
 
 See [Providers](docs/providers.md) for request shapes, auth quirks, and URL
 support per family.

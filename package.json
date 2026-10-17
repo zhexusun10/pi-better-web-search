@@ -1,6 +1,6 @@
 {
   "name": "pi-better-web-search",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A better provider-native web_search tool for pi: raw results, automatic provider fallback, URL analysis, and native DeepSeek Search/Fetch.",
   "type": "module",
   "license": "MIT",
@@ -30,7 +30,8 @@
     "url-context"
   ],
   "files": [
-    "src/",
+    "extensions/",
+    "lib/",
     "docs/",
     "assets/",
     "README.md",
@@ -41,7 +42,7 @@
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./extensions/index.ts"
     ],
     "image": "https://raw.githubusercontent.com/zhexusun10/pi-better-web-search/main/assets/architecture.svg"
   },

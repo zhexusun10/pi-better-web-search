@@ -37,8 +37,8 @@ step and no runtime dependency to bundle.
 
 ## Provider work
 
-A provider adapter lives in `src/providers/<family>.ts` and follows the
-`ProviderAdapter` contract in `src/providers/types.ts`. Return provider data
+A provider adapter lives in `lib/providers/<family>.ts` and follows the
+`ProviderAdapter` contract in `lib/providers/types.ts`. Return provider data
 unchanged. `search()` should throw when the provider did not perform a search;
 `fetch()` should return one entry per URL and put per-URL failures in
 `entry.error`.

@@ -14,7 +14,7 @@ import {
   withTempCache,
 } from "./helpers.mjs";
 
-import { fingerprintAvailableModels, writeCache } from "../src/cache.ts";
+import { fingerprintAvailableModels, writeCache } from "../lib/cache.ts";
 import {
   FETCH_ATTEMPT_CAP,
   SEARCH_ATTEMPT_CAP,
@@ -25,7 +25,7 @@ import {
   hasExposedCandidate,
   hasUrlCandidate,
   resolveResolutionContext,
-} from "../src/candidates.ts";
+} from "../lib/candidates.ts";
 
 function ctxFor(model, availableModels, extra = {}) {
   return createMockCtx({ model, availableModels, ...extra });

@@ -8,7 +8,7 @@ import {
   DEEPSEEK_SEARCH_COUNT,
   deepseekAdapter,
   resolveDeepSeekToolUrl,
-} from "../src/providers/deepseek.ts";
+} from "../lib/providers/deepseek.ts";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {

@@ -26,7 +26,7 @@ import {
   ollamaAdapter,
   openaiAdapter,
   xaiAdapter,
-} from "../src/providers/index.ts";
+} from "../lib/providers/index.ts";
 import {
   describeModel,
   getAdapterForFamily,
@@ -35,14 +35,14 @@ import {
   isChatModel,
   isRestFamily,
   isSupportedSearchModel,
-} from "../src/families.ts";
+} from "../lib/families.ts";
 import {
   fingerprintAvailableModels,
   getCachePath,
   isFreshDiscovery,
   readCache,
   writeCache,
-} from "../src/cache.ts";
+} from "../lib/cache.ts";
 import {
   baseUrlFor,
   buildRequestHeaders,
@@ -52,25 +52,25 @@ import {
   mergeHeaders,
   resolveAuth,
   setHeaderIfAbsent,
-} from "../src/auth.ts";
+} from "../lib/auth.ts";
 import {
   MAX_URLS,
   WEB_SEARCH_DESCRIPTION,
   buildWebSearchSchema,
   buildWebSearchToolDescription,
-} from "../src/schema.ts";
+} from "../lib/schema.ts";
 import {
   MAX_OUTPUT_CHARS,
   formatError,
   formatSuccess,
   truncateText,
-} from "../src/format.ts";
+} from "../lib/format.ts";
 import {
   HttpError,
   responseError,
   isAbortError,
   readJson,
-} from "../src/providers/http.ts";
+} from "../lib/providers/http.ts";
 
 test("provider family detection follows the required precedence", () => {
   const cases = [

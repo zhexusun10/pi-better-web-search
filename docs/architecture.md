@@ -189,21 +189,21 @@ interface ProviderAdapter {
 
 `search()` throws when the provider did not perform a search. `fetch()` returns
 one entry per requested URL; per-URL failures go in `entry.error`. Both honor
-the abort signal and resolve credentials through `src/auth.ts`.
+the abort signal and resolve credentials through `lib/auth.ts`.
 
 ## File map
 
 | Path | Responsibility |
 | --- | --- |
-| `src/index.ts` | Tool registration, exposure sync, lifecycle handlers |
-| `src/candidates.ts` | Current/available candidates, ordering, cache resolution |
-| `src/search.ts` | Input validation, search/fetch fallback, cache writes, output |
-| `src/auth.ts` | Credential resolution, header merging, env fallback |
-| `src/cache.ts` | Preference cache and model-set fingerprint |
-| `src/families.ts` | Provider family detection |
-| `src/schema.ts` | Query-only and query+urls schema variants |
-| `src/format.ts` | JSON wrapper, output guard, success/error results |
-| `src/providers/` | Provider adapters, SSE reader, HTTP helpers |
+| `extensions/index.ts` | Tool registration, exposure sync, lifecycle handlers |
+| `lib/candidates.ts` | Current/available candidates, ordering, cache resolution |
+| `lib/search.ts` | Input validation, search/fetch fallback, cache writes, output |
+| `lib/auth.ts` | Credential resolution, header merging, env fallback |
+| `lib/cache.ts` | Preference cache and model-set fingerprint |
+| `lib/families.ts` | Provider family detection |
+| `lib/schema.ts` | Query-only and query+urls schema variants |
+| `lib/format.ts` | JSON wrapper, output guard, success/error results |
+| `lib/providers/` | Provider adapters, SSE reader, HTTP helpers |
 
 ## Non-goals
 

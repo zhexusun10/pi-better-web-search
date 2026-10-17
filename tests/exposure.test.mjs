@@ -12,8 +12,8 @@ import {
 import piBetterWebSearch, {
   WEB_SEARCH_TOOL_NAME,
   createWebSearchToolManager,
-} from "../src/index.ts";
-import { WEB_SEARCH_DESCRIPTION } from "../src/schema.ts";
+} from "../extensions/index.ts";
+import { WEB_SEARCH_DESCRIPTION } from "../lib/schema.ts";
 
 function toolOf(pi) {
   return pi.tools.get(WEB_SEARCH_TOOL_NAME);

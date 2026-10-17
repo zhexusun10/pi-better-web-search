@@ -12,11 +12,11 @@ import {
   withTempCache,
 } from "./helpers.mjs";
 
-import piBetterWebSearch, { createWebSearchToolManager } from "../src/index.ts";
-import { fingerprintAvailableModels, readCache } from "../src/cache.ts";
-import { MAX_OUTPUT_CHARS } from "../src/format.ts";
-import { WEB_SEARCH_TOOL_NAME } from "../src/schema.ts";
-import { runWebSearch } from "../src/search.ts";
+import piBetterWebSearch, { createWebSearchToolManager } from "../extensions/index.ts";
+import { fingerprintAvailableModels, readCache } from "../lib/cache.ts";
+import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
+import { WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
+import { runWebSearch } from "../lib/search.ts";
 
 const DEEPSEEK_SEARCH_URL = "https://api.deepseek.com/v1/tools/search";
 const DEEPSEEK_FETCH_URL = "https://api.deepseek.com/v1/tools/fetch";
@@ -550,7 +550,7 @@ test("extension registers one tool, adds no system-prompt hooks, and returns und
   const manifest = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
-  assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
+  assert.deepEqual(manifest.pi.extensions, ["./extensions/index.ts"]);
 
   const pi = createMockPi();
   pi.setActiveTools(["read"]);
@@ -580,7 +580,7 @@ test("extension registers one tool, adds no system-prompt hooks, and returns und
   assert.equal(pi.tools.size, 1);
 });
 
-test("src contains no forbidden result post-processing helpers", () => {
+test("lib contains no forbidden result post-processing helpers", () => {
   const forbidden = [
     "sanitize",
     "normalizeSearchUrl",
@@ -600,13 +600,13 @@ test("src contains no forbidden result post-processing helpers", () => {
     "titleFromUrl",
   ];
   const pattern = new RegExp(`\\b(?:${forbidden.join("|")})\\b`);
-  const files = readdirSync(new URL("../src/", import.meta.url), {
+  const files = readdirSync(new URL("../lib/", import.meta.url), {
     recursive: true,
     encoding: "utf8",
   }).filter((file) => file.endsWith(".ts"));
 
   for (const file of files) {
-    const source = readFileSync(new URL(`../src/${file.replaceAll("\\", "/")}`, import.meta.url), "utf8");
+    const source = readFileSync(new URL(`../lib/${file.replaceAll("\\", "/")}`, import.meta.url), "utf8");
     assert.doesNotMatch(source, pattern, file);
   }
 });

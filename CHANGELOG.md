@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Align directory structure with Pi extension conventions (`extensions/index.ts` and `lib/`), eliminating the `:src` suffix in Pi's startup banner.
+- Highlight and expand documentation for all 10 supported provider classes: DeepSeek, Google Gemini, Google Antigravity, Ollama Cloud, OpenAI, Azure OpenAI, OpenAI Codex, GitHub Copilot, OpenCode, and xAI Grok (plus Anthropic Messages).
+
 ## 0.1.0
 
 Initial release of `pi-better-web-search`.

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { anthropicAdapter } from "../src/providers/anthropic.ts";
+import { anthropicAdapter } from "../lib/providers/anthropic.ts";
 import { anthropicModel, createMockCtx } from "./helpers.mjs";
 
 const WEB_SEARCH_TOOL = {
