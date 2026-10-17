@@ -1,0 +1,15 @@
+node_modules/
+*.tgz
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.pi/
+
+# Local reference checkout used while extracting the original web_search tool.
+/pi-web-search/

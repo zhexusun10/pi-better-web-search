@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/zhexusun10/pi-better-web-search#readme
+    about: Install, provider support, automatic fallback, cache behavior, and raw results.
+  - name: Security policy
+    url: https://github.com/zhexusun10/pi-better-web-search/blob/main/SECURITY.md
+    about: Report vulnerabilities privately. Do not paste credentials in an issue.
