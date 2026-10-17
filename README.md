@@ -328,7 +328,7 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 - Other provider families are covered by unit/integration tests with mocked
   requests and streams; live credentials for every provider are not required.
 
-The opt-in live DeepSeek test is reproducible:
+The opt-in live DeepSeek test is reproducible from a repository checkout:
 
 ```bash
 DEEPSEEK_API_KEY=... npm run test:live:deepseek
@@ -339,7 +339,7 @@ DEEPSEEK_API_KEY=... npm run test:live:deepseek
 - **pi 1.3+**. The extension uses the current extension tool and model registry
   APIs.
 - **Node.js 22.19+**. Pi loads the TypeScript extension directly; there is no
-  build step.
+  compile step.
 - Pi provides `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and
   `typebox` as host packages. They are declared as peer dependencies and are
   not bundled.

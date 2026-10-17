@@ -12,7 +12,7 @@ npm test
 npm run verify:package
 ```
 
-The extension is TypeScript source loaded directly by pi. There is no build
+The extension is TypeScript source loaded directly by pi. There is no compile
 step and no runtime dependency to bundle.
 
 ## Rules

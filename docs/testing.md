@@ -1,5 +1,7 @@
 # Testing
 
+These commands run from a repository checkout.
+
 ## Test suite
 
 ```bash
