@@ -214,4 +214,5 @@ the abort signal and resolve credentials through `src/auth.ts`.
 - Providing telemetry or a hosted search service.
 
 For the original implementation handoff and detailed invariants, see the
-internal [`DESIGN.md`](../DESIGN.md).
+internal [`DESIGN.md`](https://github.com/zhexusun10/pi-better-web-search/blob/main/DESIGN.md)
+in the repository.
