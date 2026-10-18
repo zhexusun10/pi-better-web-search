@@ -89,7 +89,7 @@ test("no supported provider returns a clear error instead of calling an adapter"
   const result = await runWebSearch({ query: "anything" }, ctx);
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /^Failed: No supported web search provider is available/);
+  assert.equal(result.content[0].text, "Failed: This tool is not available in this conversation.");
 });
 
 test("output wrapper keeps provider results raw and fetch data untouched", async () => {

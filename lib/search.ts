@@ -416,8 +416,7 @@ export async function runWebSearch(
   if (searchRequested) {
     const candidates = getSearchCandidates(resolution);
     if (candidates.length === 0) {
-      const message =
-        "No supported web search provider is available. Configure a supported model or credentials and try again.";
+      const message = "This tool is not available in this conversation.";
       return formatError(message, { attempts, error: message });
     }
 
@@ -431,6 +430,10 @@ export async function runWebSearch(
 
   const fetchCandidates = validFetchRequested ? getFetchCandidates(resolution) : [];
   if (validFetchRequested && fetchCandidates.length === 0) {
+    if (!searchRequested && getSearchCandidates(resolution).length === 0) {
+      const message = "This tool is not available in this conversation.";
+      return formatError(message, { attempts, error: message });
+    }
     const requestedUrls = [
       ...urls,
       ...urlErrors.map((entry) => `${entry.url} (${entry.error})`),

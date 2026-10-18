@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Simplify error message when no supported provider is available: return
+  `Failed: This tool is not available in this conversation.` instead of exposing
+  internal provider and credential configuration instructions to the model.
+
 ## 0.1.2
 
 - Remove provider/model routing metadata from the model-facing JSON output
