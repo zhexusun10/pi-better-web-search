@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">pi-better-web-search architecture</title>
-  <desc id="desc">One web_search tool routes to provider-native search APIs, falls back across authenticated providers, and returns raw provider JSON with a size guard.</desc>
+  <desc id="desc">One web_search tool routes across ten provider classes, falls back across authenticated providers, and returns raw provider JSON with a size guard.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#52525b"/>
@@ -16,8 +16,13 @@
       .h { font: 700 18px Arial, Helvetica, sans-serif; fill: #18181b; }
       .t { font: 400 15px Arial, Helvetica, sans-serif; fill: #3f3f46; }
       .muted { font: 400 14px Arial, Helvetica, sans-serif; fill: #71717a; }
+      .p { font: 700 13px Arial, Helvetica, sans-serif; fill: #18181b; }
+      .d { font: 400 10.5px Arial, Helvetica, sans-serif; fill: #71717a; }
       .inv-h { font: 700 18px Arial, Helvetica, sans-serif; fill: #ffffff; }
       .inv-t { font: 400 14px Arial, Helvetica, sans-serif; fill: #e4e4e7; }
+      .inv-p { font: 700 13px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .inv-d { font: 400 10.5px Arial, Helvetica, sans-serif; fill: #e4e4e7; }
+      .note { font: 400 11px Arial, Helvetica, sans-serif; fill: #71717a; }
       .arrow { stroke: #52525b; stroke-width: 2; fill: none; marker-end: url(#arrow); }
       .label { font: 600 13px Arial, Helvetica, sans-serif; fill: #52525b; }
       .footer { font: 400 14px Arial, Helvetica, sans-serif; fill: #71717a; }
@@ -28,57 +33,80 @@
   <rect class="panel" x="20" y="20" width="1160" height="600" rx="22"/>
 
   <text class="title" x="56" y="82">pi-better-web-search</text>
-  <text class="subtitle" x="56" y="116">one tool · provider-native search · raw results</text>
+  <text class="subtitle" x="56" y="116">one tool · 10 provider classes · raw results</text>
 
-  <rect class="box" x="56" y="166" width="226" height="136" rx="16"/>
-  <text class="h" x="78" y="198">Current pi model</text>
-  <text class="t" x="78" y="226">supports search?</text>
-  <text class="muted" x="78" y="252">yes → use it first</text>
-  <text class="muted" x="78" y="274">no → fallback</text>
+  <rect class="box" x="56" y="150" width="220" height="124" rx="16"/>
+  <text class="h" x="76" y="180">Current pi model</text>
+  <text class="t" x="76" y="208">supports search?</text>
+  <text class="muted" x="76" y="234">yes → use it first</text>
+  <text class="muted" x="76" y="256">no → fallback</text>
 
-  <path class="arrow" d="M 286 234 L 334 234"/>
-  <text class="label" x="292" y="222">route</text>
+  <path class="arrow" d="M 276 212 L 306 212"/>
+  <text class="label" x="280" y="200">route</text>
 
-  <rect class="box" x="342" y="166" width="248" height="136" rx="16"/>
-  <text class="h" x="364" y="198">Candidate router</text>
-  <text class="t" x="364" y="226">current → cached →</text>
-  <text class="t" x="364" y="248">family priority</text>
-  <text class="muted" x="364" y="274">fingerprint-aware cache</text>
+  <rect class="box" x="312" y="150" width="250" height="124" rx="16"/>
+  <text class="h" x="332" y="180">Candidate router</text>
+  <text class="t" x="332" y="208">current → cached →</text>
+  <text class="t" x="332" y="230">family priority</text>
+  <text class="muted" x="332" y="256">fingerprint-aware cache</text>
 
-  <path class="arrow" d="M 594 234 L 642 234"/>
-  <text class="label" x="600" y="222">try in order</text>
+  <path class="arrow" d="M 562 212 L 598 212"/>
+  <text class="label" x="568" y="200">try in order</text>
 
-  <text class="h" x="650" y="126">provider adapters</text>
-  <rect class="dash" x="642" y="140" width="258" height="318" rx="18"/>
+  <rect class="dash" x="604" y="112" width="340" height="350" rx="18"/>
+  <text class="h" x="624" y="142">provider adapters</text>
+  <text class="muted" x="920" y="142" text-anchor="end">10 classes</text>
 
-  <rect class="accent" x="654" y="152" width="234" height="52" rx="12"/>
-  <text class="inv-h" x="672" y="175">DeepSeek</text>
-  <text class="inv-t" x="672" y="194">native search + fetch</text>
+  <rect class="accent" x="616" y="154" width="152" height="46" rx="10"/>
+  <text class="inv-p" x="630" y="172">DeepSeek</text>
+  <text class="inv-d" x="630" y="187">native search + fetch</text>
 
-  <rect class="box" x="654" y="214" width="234" height="52" rx="12"/>
-  <text class="h" x="672" y="237">Ollama Cloud</text>
-  <text class="t" x="672" y="256">search + fetch</text>
+  <rect class="box" x="616" y="208" width="152" height="46" rx="10"/>
+  <text class="p" x="630" y="226">Google Gemini</text>
+  <text class="d" x="630" y="241">search + URL context</text>
 
-  <rect class="box" x="654" y="276" width="234" height="52" rx="12"/>
-  <text class="h" x="672" y="299">Google Gemini</text>
-  <text class="t" x="672" y="318">search + URL context</text>
+  <rect class="box" x="616" y="262" width="152" height="46" rx="10"/>
+  <text class="p" x="630" y="280">Google Antigravity</text>
+  <text class="d" x="630" y="295">search + URL context</text>
 
-  <rect class="box" x="654" y="338" width="234" height="52" rx="12"/>
-  <text class="h" x="672" y="361">OpenAI / xAI</text>
-  <text class="t" x="672" y="380">Responses web search</text>
+  <rect class="box" x="616" y="316" width="152" height="46" rx="10"/>
+  <text class="p" x="630" y="334">Ollama Cloud</text>
+  <text class="d" x="630" y="349">search + fetch</text>
 
-  <rect class="box" x="654" y="400" width="234" height="52" rx="12"/>
-  <text class="h" x="672" y="423">Anthropic</text>
-  <text class="t" x="672" y="442">Messages web search</text>
+  <rect class="box" x="616" y="370" width="152" height="46" rx="10"/>
+  <text class="p" x="630" y="388">OpenAI</text>
+  <text class="d" x="630" y="403">Responses web search</text>
 
-  <path class="arrow" d="M 906 234 L 954 234"/>
-  <text class="label" x="912" y="222">raw</text>
+  <rect class="box" x="776" y="154" width="152" height="46" rx="10"/>
+  <text class="p" x="790" y="172">Azure OpenAI</text>
+  <text class="d" x="790" y="187">Azure Responses</text>
 
-  <rect class="box" x="962" y="166" width="178" height="136" rx="16"/>
-  <text class="h" x="982" y="198">Tool result</text>
-  <text class="t" x="982" y="226">raw JSON</text>
-  <text class="muted" x="982" y="252">no cleanup</text>
-  <text class="muted" x="982" y="274">64k char guard</text>
+  <rect class="box" x="776" y="208" width="152" height="46" rx="10"/>
+  <text class="p" x="790" y="226">OpenAI Codex</text>
+  <text class="d" x="790" y="241">Codex Responses</text>
+
+  <rect class="box" x="776" y="262" width="152" height="46" rx="10"/>
+  <text class="p" x="790" y="280">GitHub Copilot</text>
+  <text class="d" x="790" y="295">Copilot Responses</text>
+
+  <rect class="box" x="776" y="316" width="152" height="46" rx="10"/>
+  <text class="p" x="790" y="334">OpenCode</text>
+  <text class="d" x="790" y="349">OpenCode Responses</text>
+
+  <rect class="box" x="776" y="370" width="152" height="46" rx="10"/>
+  <text class="p" x="790" y="388">xAI Grok</text>
+  <text class="d" x="790" y="403">Grok Responses</text>
+
+  <text class="note" x="624" y="446">plus Anthropic Messages · native Messages web search</text>
+
+  <path class="arrow" d="M 944 212 L 974 212"/>
+  <text class="label" x="948" y="200">raw</text>
+
+  <rect class="box" x="980" y="150" width="160" height="124" rx="16"/>
+  <text class="h" x="1000" y="180">Tool result</text>
+  <text class="t" x="1000" y="208">raw JSON</text>
+  <text class="muted" x="1000" y="234">no cleanup</text>
+  <text class="muted" x="1000" y="256">64k char guard</text>
 
   <rect class="panel" x="56" y="492" width="1084" height="94" rx="16"/>
   <text class="h" x="78" y="522">Exposure &amp; memory</text>

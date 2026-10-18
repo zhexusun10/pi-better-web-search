@@ -1,5 +1,4 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ProviderFamily } from "./providers/types.ts";
 
 const configuredOutputLimit = Number(process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS);
 export const MAX_OUTPUT_CHARS =
@@ -10,8 +9,6 @@ export const MAX_OUTPUT_CHARS =
 export interface WebSearchOutput {
   query?: string;
   search?: {
-    provider: ProviderFamily;
-    model: string;
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -21,8 +18,6 @@ export interface WebSearchOutput {
   };
   fetched?: Array<{
     url: string;
-    provider?: ProviderFamily;
-    model?: string;
     data?: unknown;
     error?: string;
   }>;

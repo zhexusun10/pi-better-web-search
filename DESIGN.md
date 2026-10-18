@@ -266,8 +266,9 @@ If `urls` is present and URL fetching is allowed:
 4. Fill any remaining attempt budget with other available URL-capable provider
    interfaces, never repeating a failed provider id.
 
-A search and a fetch may use different providers. Record each fetched entry's
-provider/model in the output. Preserve per-URL errors reported by a provider. If
+A search and a fetch may use different providers. Keep provider/model routing
+metadata in `details`, not in the model-facing output. Preserve per-URL errors
+reported by a provider. If
 URLs were supplied but no fetch interface exists, return a clear tool error; do
 not silently drop the URLs. On a successful fetch, write the successful
 `cache.fetch` ref and fingerprint using the same stale-ref rules as search.
@@ -335,8 +336,6 @@ export const MAX_OUTPUT_CHARS = Number(process.env.PI_BETTER_WEB_SEARCH_MAX_CHAR
 export interface WebSearchOutput {
   query?: string;
   search?: {
-    provider: ProviderFamily;
-    model: string;
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -346,8 +345,6 @@ export interface WebSearchOutput {
   };
   fetched?: Array<{
     url: string;
-    provider?: ProviderFamily;
-    model?: string;
     data?: unknown;
     error?: string;
   }>;
@@ -378,8 +375,6 @@ Model-facing content is JSON only:
 {
   "query": "optional query",
   "search": {
-    "provider": "deepseek",
-    "model": "deepseek-chat",
     "answer": "provider text when available",
     "results": "raw provider results",
     "citations": "raw provider citations",
@@ -390,8 +385,6 @@ Model-facing content is JSON only:
   "fetched": [
     {
       "url": "https://example.com",
-      "provider": "ollama",
-      "model": "gpt-oss:120b",
       "data": "raw provider fetch payload"
     }
   ]

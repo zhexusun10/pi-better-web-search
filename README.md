@@ -222,8 +222,6 @@ this:
 {
   "query": "the query",
   "search": {
-    "provider": "deepseek",
-    "model": "deepseek-chat",
     "answer": "provider text when available",
     "results": "the provider's raw results",
     "citations": "the provider's raw citations",
@@ -233,8 +231,6 @@ this:
   "fetched": [
     {
       "url": "https://example.com",
-      "provider": "deepseek",
-      "model": "deepseek-chat",
       "data": "the provider's raw fetch payload"
     }
   ]

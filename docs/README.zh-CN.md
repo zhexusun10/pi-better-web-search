@@ -189,8 +189,6 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
 {
   "query": "the query",
   "search": {
-    "provider": "deepseek",
-    "model": "deepseek-chat",
     "answer": "provider text when available",
     "results": "the provider's raw results",
     "citations": "the provider's raw citations",
@@ -200,8 +198,6 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
   "fetched": [
     {
       "url": "https://example.com",
-      "provider": "deepseek",
-      "model": "deepseek-chat",
       "data": "the provider's raw fetch payload"
     }
   ]

@@ -135,22 +135,14 @@ test("output wrapper keeps provider results raw and fetch data untouched", async
 
         assert.equal(result.isError, undefined);
         const output = JSON.parse(result.content[0].text);
-        assert.deepEqual(output.search, {
-          provider: "deepseek",
-          model: "deepseek-chat",
-          ...searchResult,
-        });
+        assert.deepEqual(output.search, searchResult);
         assert.equal(output.fetched.length, 2);
         assert.deepEqual(output.fetched[0], {
           url: "https://example.com/a",
-          provider: "deepseek",
-          model: "deepseek-chat",
           data: { raw: "https://example.com/a", index: 0 },
         });
         assert.deepEqual(output.fetched[1], {
           url: "https://example.com/a",
-          provider: "deepseek",
-          model: "deepseek-chat",
           data: { raw: "https://example.com/a", index: 1 },
         });
 
@@ -196,7 +188,7 @@ test("search falls back to the next candidate and records the failed attempt", a
         const result = await runWebSearch({ query: "fallback" }, ctx);
         const output = JSON.parse(result.content[0].text);
         assert.equal(result.isError, undefined);
-        assert.equal(output.search.provider, "google");
+        assert.equal(output.search.results[0].title, "google");
         assert.equal(result.details.attempts.length, 1);
         assert.equal(result.details.attempts[0].phase, "search");
         assert.equal(result.details.attempts[0].provider, "deepseek");
@@ -233,8 +225,6 @@ test("invalid URL entries are included alongside valid fetch results", async () 
         assert.deepEqual(output.fetched, [
           {
             url: "https://example.com/valid",
-            provider: "deepseek",
-            model: "deepseek-chat",
             data: { url: "https://example.com/valid" },
           },
           {

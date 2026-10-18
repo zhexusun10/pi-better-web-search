@@ -136,8 +136,6 @@ The result is a JSON wrapper:
 {
   query?: string;
   search?: {
-    provider: ProviderFamily;
-    model: string;
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -147,8 +145,6 @@ The result is a JSON wrapper:
   };
   fetched?: Array<{
     url: string;
-    provider?: ProviderFamily;
-    model?: string;
     data?: unknown;
     error?: string;
   }>;

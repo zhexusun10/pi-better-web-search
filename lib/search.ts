@@ -377,8 +377,6 @@ function fetchOutput(states: FetchState[], urlErrors: UrlValidationError[]): Non
     if (state.data !== undefined && state.provider) {
       return {
         url: state.url,
-        provider: state.provider.family,
-        model: state.provider.model.id,
         data: state.data,
       };
     }
@@ -474,11 +472,7 @@ export async function runWebSearch(
   const output: WebSearchOutput = {};
   if (query) output.query = query;
   if (searchSuccess) {
-    output.search = {
-      ...searchSuccess.result,
-      provider: searchSuccess.candidate.family,
-      model: searchSuccess.candidate.model.id,
-    };
+    output.search = { ...searchSuccess.result };
   }
   if (fetchRequested) {
     output.fetched = fetchOutput(states, urlErrors);

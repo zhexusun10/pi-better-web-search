@@ -164,8 +164,6 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
     assert.deepEqual(JSON.parse(first.content[0].text), {
       query: "first query",
       search: {
-        provider: "deepseek",
-        model: "deepseek-chat",
         results: rawResults,
       },
     });
@@ -181,7 +179,7 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
     calls.length = 0;
     const second = await runWebSearch({ query: "second query" }, ctx);
     assert.equal(second.isError, undefined);
-    assert.equal(JSON.parse(second.content[0].text).search.provider, "deepseek");
+    assert.deepEqual(JSON.parse(second.content[0].text).search.results, rawResults);
     assert.deepEqual(calls.map((call) => call.url), [DEEPSEEK_SEARCH_URL]);
     assert.equal(calls.some((call) => call.url === OPENAI_RESPONSES_URL), false);
   });
@@ -215,7 +213,7 @@ test("supported current model is tried first every time; cache supplies the fall
     const first = await runWebSearch({ query: "current model policy" }, ctx);
     assert.equal(first.isError, undefined);
     assert.deepEqual(order, ["openai", "deepseek"]);
-    assert.equal(JSON.parse(first.content[0].text).search.provider, "deepseek");
+    assert.equal(JSON.parse(first.content[0].text).search.results[0].title, "DeepSeek fallback");
     assert.equal(first.details.attempts.length, 1);
     assert.equal(first.details.attempts[0].provider, "openai");
     assert.match(first.details.attempts[0].message, /bad request from OpenAI/);
@@ -231,7 +229,7 @@ test("supported current model is tried first every time; cache supplies the fall
     // fallback follows it instead of replacing it.
     assert.deepEqual(order, ["openai", "deepseek"]);
     assert.equal(second.details.attempts.length, 1);
-    assert.equal(JSON.parse(second.content[0].text).search.provider, "deepseek");
+    assert.equal(JSON.parse(second.content[0].text).search.results[0].title, "DeepSeek fallback");
     assert.deepEqual(readCache().search, {
       provider: "deepseek",
       model: "deepseek-chat",
@@ -270,7 +268,7 @@ test("provider-set changes invalidate the old cache and select the new priority 
     const second = await runWebSearch({ query: "after change" }, ctx);
     assert.equal(second.isError, undefined);
     const output = JSON.parse(second.content[0].text);
-    assert.equal(output.search.provider, "deepseek");
+    assert.equal(output.search.results[0].title, "New priority provider");
     assert.deepEqual(calls.map((call) => call.url), [DEEPSEEK_SEARCH_URL]);
 
     const after = readCache();
@@ -341,8 +339,6 @@ test("URL-only requests use DeepSeek Fetch and return the raw payload", async (t
       fetched: [
         {
           url: "https://example.com/page",
-          provider: "deepseek",
-          model: "deepseek-chat",
           data: page,
         },
       ],
@@ -391,8 +387,6 @@ test("search and URL analysis may use different providers", async (t) => {
     assert.equal(result.isError, undefined);
     const output = JSON.parse(result.content[0].text);
     assert.deepEqual(output.search, {
-      provider: "openai",
-      model: "gpt-5.1",
       answer: "OpenAI answer",
       results: [call],
       citations: [],
@@ -401,8 +395,6 @@ test("search and URL analysis may use different providers", async (t) => {
     assert.deepEqual(output.fetched, [
       {
         url: "https://example.com/page",
-        provider: "deepseek",
-        model: "deepseek-chat",
         data: fetchedPage,
       },
     ]);
@@ -451,14 +443,10 @@ test("per-URL fetch fallback moves only the failed URL to the next provider", as
     assert.deepEqual(JSON.parse(result.content[0].text).fetched, [
       {
         url: okUrl,
-        provider: "deepseek",
-        model: "deepseek-chat",
         data: { title: "DeepSeek OK", content: "DeepSeek body" },
       },
       {
         url: failedUrl,
-        provider: "ollama",
-        model: "gpt-oss:120b",
         data: {
           title: "Ollama fallback",
           content: "Ollama body",

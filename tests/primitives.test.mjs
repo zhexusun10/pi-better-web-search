@@ -183,7 +183,7 @@ test("truncateText is Unicode-safe and format helpers only wrap JSON", () => {
   assert.deepEqual(truncateText("a😀b", 2), { text: "a😀", truncated: true });
   assert.deepEqual(truncateText("anything", 0), { text: "", truncated: true });
 
-  const output = { query: "q", search: { provider: "deepseek", model: "deepseek-chat", results: [{ raw: true }] } };
+  const output = { query: "q", search: { results: [{ raw: true }] } };
   const details = { attempts: [], provider: "deepseek", model: "deepseek-chat" };
   const result = formatSuccess(output, details);
   assert.equal(result.isError, undefined);
