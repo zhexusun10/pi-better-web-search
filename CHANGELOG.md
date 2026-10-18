@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4
+
+- Return `Failed: This tool is not available in this conversation.` when all
+  search providers fail during execution, preventing leaking internal provider
+  attempt errors to the model.
+- Return `Failed: URL fetch is not available in this conversation.` when URL
+  fetching is requested but no URL-capable provider is available.
+- Technical attempt errors and provider routing remain recorded in
+  `details.attempts` for logs and UI inspection.
+
 ## 0.1.3
 
 - Simplify error message when no supported provider is available: return

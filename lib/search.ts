@@ -422,23 +422,14 @@ export async function runWebSearch(
 
     searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
     if (!searchSuccess) {
-      const failure = attemptSummary(attempts, "search") || "No provider returned a result.";
-      const message = `Web search failed. ${failure}`;
+      const message = "This tool is not available in this conversation.";
       return formatError(message, { attempts, error: message });
     }
   }
 
   const fetchCandidates = validFetchRequested ? getFetchCandidates(resolution) : [];
   if (validFetchRequested && fetchCandidates.length === 0) {
-    if (!searchRequested && getSearchCandidates(resolution).length === 0) {
-      const message = "This tool is not available in this conversation.";
-      return formatError(message, { attempts, error: message });
-    }
-    const requestedUrls = [
-      ...urls,
-      ...urlErrors.map((entry) => `${entry.url} (${entry.error})`),
-    ];
-    const message = `URL fetch failed. No URL fetch provider is available for: ${requestedUrls.join(", ")}`;
+    const message = "URL fetch is not available in this conversation.";
     // The search half succeeded; remember it even though the URL half did not.
     const cache = nextCache(resolution, searchSuccess?.candidate, undefined);
     if (cache) writeCache(cache);

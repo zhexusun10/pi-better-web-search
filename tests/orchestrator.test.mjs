@@ -286,7 +286,7 @@ test("valid URLs with no URL-capable provider return a clear tool error", async 
           ctx,
         );
         assert.equal(result.isError, true);
-        assert.match(result.content[0].text, /No URL fetch provider is available/);
+        assert.equal(result.content[0].text, "Failed: URL fetch is not available in this conversation.");
         assert.equal(result.details.attempts.length, 0);
         assert.equal(searchCalls, 1);
         assert.deepEqual(readCache().search, { provider: "openai", model: "gpt-5.1" });

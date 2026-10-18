@@ -300,12 +300,7 @@ test("all providers failing returns a tool error listing every attempt", async (
 
     const result = await runWebSearch({ query: "nothing works" }, ctx);
     assert.equal(result.isError, true);
-    const text = result.content[0].text;
-    assert.match(text, /^Failed: Web search failed\./);
-    assert.match(text, /deepseek\/deepseek-chat/);
-    assert.match(text, /openai\/gpt-5\.1/);
-    assert.match(text, /deepseek exploded/);
-    assert.match(text, /openai exploded/);
+    assert.equal(result.content[0].text, "Failed: This tool is not available in this conversation.");
     assert.deepEqual(
       result.details.attempts.map((attempt) => attempt.provider).sort(),
       ["deepseek", "openai"],
