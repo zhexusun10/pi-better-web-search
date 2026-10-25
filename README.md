@@ -8,7 +8,7 @@ provider supports it, automatically falls back across authenticated providers,
 and returns provider data as-is.
 
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/badge/npm-v0.1.1-blue)](https://www.npmjs.com/package/pi-better-web-search)
+[![npm](https://img.shields.io/badge/npm-v0.1.5-blue)](https://www.npmjs.com/package/pi-better-web-search)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Pi 1.3](https://img.shields.io/badge/Pi-1.3-blue.svg)](https://pi.dev)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
@@ -142,10 +142,17 @@ For a search:
    when the cache fingerprint is current.
 3. The remaining provider families are tried in this fixed order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
-4. Within a family, a likely search-capable authenticated model is selected
-   first, with a deterministic tie-break. Remaining attempt slots are filled
-   with other authenticated provider interfaces, but a failed provider id is
-   never retried.
+4. Within a family, models are ordered by capability tier first (cheapest
+   available tier wins) and then by version number, newest first. OpenAI tiers
+   are `luna → sol → astra` and Claude tiers are
+   `haiku → sonnet → opus → fable`; other families have no named tiers and are
+   ordered purely by version. Ties are deterministic.
+5. Alternate models from other providers are tried round-robin, so a provider
+   that rejects one specific model can still serve a sibling. Only the current
+   model's provider id is excluded; a different provider id in the same family
+   is still tried. A provider-wide failure (auth, balance, network, timeout,
+   malformed request) skips the rest of that provider; a model-specific
+   failure keeps trying sibling models.
 
 URL fetching uses the same idea, but considers only providers that implement
 URL fetching.

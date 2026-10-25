@@ -120,8 +120,14 @@ Provider 识别顺序：
 2. 缓存指纹有效时，使用记住的搜索 provider。
 3. 其余 provider family 按固定顺序尝试：
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**。
-4. 同一 family 内优先选择看起来支持搜索的已认证模型。剩余槽位用其他已认证
-   provider 接口填充；同一个 provider id 不会用不同模型重复尝试。
+4. 同一 family 内先按能力等级排序（便宜的等级优先，未知等级排最后）：
+   OpenAI 为 `luna → sol → astra`，Claude 为 `haiku → sonnet → opus → fable`；
+   其他 family 没有命名等级，直接按版本号从新到旧排序。同级内版本号大的优先。
+5. 除当前模型的 provider id 外，其他 provider 的备用模型会按 round-robin 继续尝试，
+   这样即使某个账号拒绝某个具体模型，也能换用同 provider 的其他模型。
+   同一 family 下不同 provider id（如 `openai` 与 `openai-codex`）仍会尝试。
+   provider 级失败（鉴权、余额、网络、超时、请求头异常）会跳过该 provider 的
+   其余模型；模型级失败则继续尝试同 provider 的其他模型。
 
 URL 抓取使用同样的思路，但只考虑实现了 URL 抓取的 provider。
 

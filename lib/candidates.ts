@@ -52,14 +52,52 @@ export const MAX_FETCH_CANDIDATES = FETCH_ATTEMPT_CAP;
 export const SEARCH_CAP = SEARCH_ATTEMPT_CAP;
 export const FETCH_CAP = FETCH_ATTEMPT_CAP;
 
-const PREFERRED_MODEL_PATTERNS: Record<ProviderFamily, RegExp> = {
-  deepseek: /deepseek/i,
-  ollama: /gpt-oss|qwen|llama|deepseek|mistral/i,
-  google: /gemini/i,
-  openai: /gpt-5|gpt-4\.1|gpt-4o|o[134]/i,
-  xai: /grok/i,
-  anthropic: /claude/i,
+/**
+ * Cheapest-first capability tiers per family, ordered small to large. The
+ * first matching tier wins and ids that match no tier rank last, so fallback
+ * does not burn a large model when a small one is available. Version numbers
+ * are compared separately, newest first. Only families whose provider uses
+ * tier names need an entry; everywhere else every model shares tier 0.
+ */
+function tierMatcher(name: string): RegExp {
+  return new RegExp(`(?:^|[^a-z0-9])${name}(?:$|[^a-z0-9])`, "i");
+}
+
+const MODEL_TIERS: Partial<Record<ProviderFamily, readonly RegExp[]>> = {
+  openai: ["luna", "sol", "astra"].map(tierMatcher),
+  anthropic: ["haiku", "sonnet", "opus", "fable"].map(tierMatcher),
 };
+
+function modelTier(candidate: Candidate): number {
+  const patterns = MODEL_TIERS[candidate.family];
+  if (!patterns) return 0;
+  for (let index = 0; index < patterns.length; index += 1) {
+    if (patterns[index].test(candidate.model.id)) return index;
+  }
+  return patterns.length;
+}
+
+/**
+ * Parse the first version-like run in a model id into a numeric tuple.
+ * `gpt-6.1` -> [6, 1], `claude-opus-4-5` -> [4, 5], `gpt-oss:120b` -> [120].
+ * Ids without a number return an empty tuple and rank below versioned ones.
+ */
+function versionTuple(id: string): number[] {
+  const match = id.match(/\d+(?:[.-]\d+)*/);
+  if (!match) return [];
+  return match[0].split(/[.-]/).map((part) => Number.parseInt(part, 10));
+}
+
+/** Compare version tuples so that a larger, newer version sorts first. */
+function compareVersionsDesc(left: number[], right: number[]): number {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = left[index] ?? 0;
+    const b = right[index] ?? 0;
+    if (a !== b) return b - a;
+  }
+  return 0;
+}
 
 function isCandidate(value: Candidate | Model<Api>): value is Candidate {
   return "model" in value && "family" in value && "adapter" in value;
@@ -140,15 +178,12 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function modelRank(candidate: Candidate): number {
-  return PREFERRED_MODEL_PATTERNS[candidate.family].test(candidate.model.id) ? 0 : 1;
-}
-
 /** Rank candidates inside one family independently of registry order. */
 export function rankFamilyCandidates(candidates: Candidate[]): Candidate[] {
   return [...candidates].sort(
     (left, right) =>
-      modelRank(left) - modelRank(right)
+      modelTier(left) - modelTier(right)
+      || compareVersionsDesc(versionTuple(left.model.id), versionTuple(right.model.id))
       || compareText(candidateKey(left), candidateKey(right))
       || compareText(left.model.baseUrl ?? "", right.model.baseUrl ?? ""),
   );
@@ -193,6 +228,16 @@ function addUnique(
   return true;
 }
 
+function usableFamilyCandidates(
+  resolution: ResolutionContext,
+  family: ProviderFamily,
+  isUsable: (candidate: Candidate) => boolean,
+): Candidate[] {
+  return rankFamilyCandidates(
+    resolution.available.filter((candidate) => candidate.family === family && isUsable(candidate)),
+  );
+}
+
 function buildCandidates(
   resolution: ResolutionContext,
   isUsable: (candidate: Candidate) => boolean,
@@ -223,23 +268,44 @@ function buildCandidates(
     if (selected.length >= cap) break;
     if (representedFamilies.has(family)) continue;
 
-    const candidates = rankFamilyCandidates(
-      resolution.available.filter((candidate) => candidate.family === family && isUsable(candidate)),
-    );
+    const candidates = usableFamilyCandidates(resolution, family, isUsable);
     if (candidates[0] && addUnique(selected, candidates[0], seen, cap)) {
       representedFamilies.add(family);
     }
   }
 
-  // Fill any remaining attempts with other available provider interfaces. A
-  // provider id is never retried with a different model, and the fixed family
-  // priority above still determines which interface comes first.
-  for (const candidate of resolution.available) {
-    if (selected.length >= cap) break;
-    if (!isUsable(candidate)) continue;
-    if (seen.has(candidateKey(candidate))) continue;
-    if (selected.some((entry) => entry.model.provider === candidate.model.provider)) continue;
-    addUnique(selected, candidate, seen, cap);
+  // Deeper fallback: alternate models from providers other than the current
+  // model's provider. Providers frequently reject one specific model (legacy
+  // IDs, account tiers, regional availability) while serving a sibling, so a
+  // single interface per family is too fragile. Round-robin across families so
+  // every family gets a second chance before any family gets a third, keeping
+  // the broad cross-provider coverage that the one-per-family pass provides.
+  //
+  // Only the current model's provider id is excluded: a different provider id
+  // in the same family (for example `openai` vs `openai-codex`, or `anthropic`
+  // vs `opencode-go`) has its own credentials and endpoint and is still worth
+  // trying. This mirrors the original "never repeat a provider id" rule while
+  // still allowing sibling models of a fallback provider.
+  const currentProvider = resolution.current?.model.provider;
+  const queues = new Map<ProviderFamily, Candidate[]>();
+  for (const family of PROVIDER_FAMILIES) {
+    const queue = usableFamilyCandidates(resolution, family, isUsable).filter(
+      (candidate) =>
+        candidate.model.provider !== currentProvider
+        && !seen.has(candidateKey(candidate)),
+    );
+    if (queue.length > 0) queues.set(family, queue);
+  }
+
+  let progressed = true;
+  while (selected.length < cap && progressed) {
+    progressed = false;
+    for (const family of PROVIDER_FAMILIES) {
+      if (selected.length >= cap) break;
+      const queue = queues.get(family);
+      const next = queue?.shift();
+      if (next && addUnique(selected, next, seen, cap)) progressed = true;
+    }
   }
 
   return selected;

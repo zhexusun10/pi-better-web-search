@@ -72,15 +72,22 @@ Search candidates:
 2. The remembered search provider when the cache fingerprint is current.
 3. One candidate per remaining family in this order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
-4. Remaining authenticated provider interfaces, up to 12 attempts.
+4. Alternate models from every provider except the current model's provider
+   id, round-robin across families, up to 12 attempts. A different provider id
+   in the same family (for example `openai` vs `openai-codex`) is still tried.
 
 Fetch candidates use the same shape but include only adapters with
 `supportsUrls` and a `fetch` implementation. The fetch cap is 6 attempts.
 
-Within a family, likely search-capable model IDs rank first (for example
-`gpt-5`/`gpt-4.1`/`gpt-4o` for OpenAI, `gemini` for Google, `claude` for
-Anthropic, `grok` for xAI). Ties are deterministic. A provider id that was
-already selected is not retried with another model.
+Within a family, models are ordered by capability tier first and version
+second. Named tiers rank cheapest first and unknown ids rank last: OpenAI uses
+`luna → sol → astra` and Claude uses `haiku → sonnet → opus → fable`. Other
+families have no named tiers. Version numbers are compared as tuples with the
+newest first (`gpt-7.0` before `gpt-6.1` before `gpt-4.1`, `gemini-3.8` before
+`gemini-2.5`). Ties fall back to the deterministic `provider/id@baseUrl` order.
+A provider id is only retried with another model when the first failure was
+model-specific; provider-wide failures (auth, balance, network, timeout,
+malformed request) skip the rest of that provider.
 
 The current model is preferred when it supports search. The cache is a fallback,
 not an override. When the current model is unsupported, the cached provider is

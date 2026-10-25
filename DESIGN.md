@@ -241,16 +241,27 @@ Use this order, skipping unavailable or unsupported entries:
 2. The cached search `ProviderRef` when the cache fingerprint is current, the
    referenced model still exists, is available, and supports search.
 3. Adapter families in `ADAPTERS` insertion order. For each family, choose one
-   available chat model deterministically, preferring likely search-capable
-   model ids and then the lexicographic `provider/id@baseUrl` order.
-4. Fill any remaining attempt budget with other available provider interfaces.
-   Never repeat a provider id after it failed; an error switches interfaces.
+   available chat model deterministically. Models are ordered by capability
+   tier first (cheapest tier wins) and then by version number, newest first:
+   OpenAI tiers are `luna → sol → astra` and Claude tiers are
+   `haiku → sonnet → opus → fable`; other families have no named tiers. Ties
+   fall back to the lexicographic `provider/id@baseUrl` order.
+4. Alternate models from every provider except the current model's provider
+   id, round-robin across families so each family gets a second chance before
+   any family gets a third. A different provider id in the same family (for
+   example `openai` vs `openai-codex`) is still tried. This recovers from
+   provider accounts that reject a specific model (legacy ids, account tiers)
+   while serving a sibling.
 
 On success, write `{ provider: model.provider, model: model.id }` as
 `cache.search` and update `cache.fingerprint`. Preserve a cached `fetch` ref
 only when the fingerprint was already current (or that fetch interface was
 revalidated in the same call); a stale, unverified ref must not inherit the new
-fingerprint. On a provider error, append a `WebSearchAttempt` and continue. On
+fingerprint. On a provider error, append a `WebSearchAttempt` and continue. A
+provider-wide failure (401/403/429, insufficient balance, network failure,
+timeout, or a malformed request header) marks the provider id as failed so the
+same provider is not retried with another model; a model-specific failure (an
+unsupported, missing, or rejected model) keeps trying sibling models. On
 abort, stop immediately and propagate the abort instead of trying more
 providers. If every attempt fails, return `formatError` with a message that
 includes the attempted interfaces and the last significant error.
@@ -263,8 +274,8 @@ If `urls` is present and URL fetching is allowed:
 2. The cached fetch `ProviderRef` when the fingerprint is current and the model
    is still a usable fetch interface.
 3. Adapter families in `ADAPTERS` insertion order with `supportsUrls`.
-4. Fill any remaining attempt budget with other available URL-capable provider
-   interfaces, never repeating a failed provider id.
+4. Alternate URL-capable models from every family except the current model's
+   family, round-robin across families, mirroring the search order.
 
 A search and a fetch may use different providers. Keep provider/model routing
 metadata in `details`, not in the model-facing output. Preserve per-URL errors

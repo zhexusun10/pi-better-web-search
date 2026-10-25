@@ -173,6 +173,33 @@ function attemptKey(candidate: Candidate): ProviderRef {
   return { provider: candidate.model.provider, model: candidate.model.id };
 }
 
+/**
+ * Provider-wide failures cannot be fixed by trying another model from the same
+ * provider: the credential, balance, network path, or request shape is broken.
+ * Model-specific failures (an unsupported or missing model, or a rejected
+ * legacy model) can be, so the orchestrator keeps trying sibling models for
+ * those. The classifier is intentionally conservative: anything it does not
+ * recognize is treated as model-specific, which only costs an extra attempt.
+ */
+const PROVIDER_WIDE_FAILURE_PATTERNS: readonly RegExp[] = [
+  // HTTP status codes as adapters format them: `(401 Unauthorized)`,
+  // `(500 Internal Server Error)`, `HTTP 429`, `status code 403`.
+  /(?:\(|HTTP\s+|status(?:\s+code)?\s*)(?:401|403|429)\b/i,
+  /(?:\(|HTTP\s+|status(?:\s+code)?\s*)5\d{2}\b/i,
+  /\bunauthoriz(?:ed|ation)?\b/i,
+  /\bforbidden\b/i,
+  /\binsufficient\b[^.]*\b(?:balance|quota|credit|credits|funds|billing)\b/i,
+  /\brate.?limit/i,
+  /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH)\b/,
+  /\bfetch failed\b/i,
+  /\btimed?\s?out\b/i,
+  /\bbytestring\b/i,
+];
+
+export function isProviderWideFailure(message: string): boolean {
+  return PROVIDER_WIDE_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 function resultCount(result: { results?: unknown }): number | undefined {
   return Array.isArray(result.results) ? result.results.length : undefined;
 }
@@ -222,8 +249,14 @@ async function runSearch(
   const candidates = getSearchCandidates(resolution);
   if (candidates.length === 0) return undefined;
 
+  // Providers whose failure was not model-specific are not retried with a
+  // different model, so a dead credential or network path does not burn the
+  // whole attempt budget on one interface.
+  const failedProviders = new Set<string>();
+
   for (const candidate of candidates) {
     if (externalSignal?.aborted) throw abortReason(externalSignal);
+    if (failedProviders.has(candidate.model.provider)) continue;
 
     const timeout = timeoutMs();
     const signal = attemptSignal(externalSignal, timeout);
@@ -238,12 +271,14 @@ async function runSearch(
       return { candidate, result: result ?? {} };
     } catch (error) {
       if (externalSignal?.aborted) throw abortReason(externalSignal);
+      const message = errorMessage(error);
       attempts.push({
         phase: "search",
         provider: candidate.model.provider,
         model: candidate.model.id,
-        message: errorMessage(error),
+        message,
       });
+      if (isProviderWideFailure(message)) failedProviders.add(candidate.model.provider);
     }
   }
 
@@ -309,9 +344,14 @@ async function runFetch(
   let preferred: Candidate | undefined;
   let preferredSuccessful = 0;
 
+  // As with search, a provider-wide failure is not retried with another model
+  // from the same provider id.
+  const failedProviders = new Set<string>();
+
   for (const candidate of candidates) {
     if (remaining.length === 0) break;
     if (externalSignal?.aborted) throw abortReason(externalSignal);
+    if (failedProviders.has(candidate.model.provider)) continue;
 
     const timeout = timeoutMs();
     const signal = attemptSignal(externalSignal, timeout);
@@ -356,6 +396,7 @@ async function runFetch(
         model: candidate.model.id,
         message,
       });
+      if (isProviderWideFailure(message)) failedProviders.add(candidate.model.provider);
       for (const index of remaining) {
         states[index].error = message;
       }

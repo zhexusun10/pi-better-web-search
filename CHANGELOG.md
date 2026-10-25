@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.5
+
+- Rank models inside a provider family by capability tier first (cheapest tier
+  wins) and version number second, newest first. OpenAI tiers are
+  `luna → sol → astra` and Claude tiers are `haiku → sonnet → opus → fable`;
+  other families have no named tiers and sort purely by version. This replaces
+  the previous regex-based "likely search-capable" ordering, so legacy models
+  no longer win a lexicographic tie-break and large tiers are not called while
+  a cheaper sibling is available.
+- Add a deeper fallback pass: after one candidate per family, alternate models
+  from other families are tried round-robin, so a provider account that rejects
+  a specific model (legacy id, account tier, regional availability) can still
+  serve a sibling model. Only the current model's provider id is excluded; a
+  different provider id in the same family is still tried.
+- Classify failures for both search and fetch: provider-wide errors
+  (401/403/429, 5xx, insufficient balance, network failure, timeout, malformed
+  request header) skip the rest of that provider, while model-specific errors
+  keep trying sibling models.
+
 ## 0.1.4
 
 - Return `Failed: This tool is not available in this conversation.` when all

@@ -5,6 +5,7 @@ import {
   createMockCtx,
   deepseekModel,
   googleModel,
+  ollamaCloudModel,
   openaiResponsesModel,
   unsupportedLocalModel,
   withTempCache,
@@ -13,7 +14,7 @@ import {
 import { readCache, writeCache, fingerprintAvailableModels } from "../lib/cache.ts";
 import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
 import { ADAPTERS } from "../lib/providers/index.ts";
-import { parseWebSearchInput, runWebSearch } from "../lib/search.ts";
+import { parseWebSearchInput, runWebSearch, isProviderWideFailure } from "../lib/search.ts";
 
 async function withAdapterPatch(patches, fn) {
   const originals = [];
@@ -165,6 +166,120 @@ test("output wrapper keeps provider results raw and fetch data untouched", async
       },
     );
   });
+});
+
+test("a model-specific search error falls back to a sibling model in the same family", async () => {
+  const primary = openaiResponsesModel({ id: "gpt-5.1" });
+  const sibling = openaiResponsesModel({ id: "gpt-4.1" });
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: [primary, sibling] });
+
+  await withTempCache(async () => {
+    const calls = [];
+    await withAdapterPatch(
+      [
+        [
+          ADAPTERS.openai,
+          "search",
+          async (_ctx, model) => {
+            calls.push(model.id);
+            if (model.id === "gpt-5.1") {
+              throw new Error(
+                "OpenAI API error (400 Bad Request): this account does not support gpt-5.1",
+              );
+            }
+            return { results: [{ title: "sibling model" }] };
+          },
+        ],
+      ],
+      async () => {
+        const result = await runWebSearch({ query: "sibling fallback" }, ctx);
+        assert.equal(result.isError, undefined);
+        assert.deepEqual(calls, ["gpt-5.1", "gpt-4.1"]);
+        assert.equal(JSON.parse(result.content[0].text).search.results[0].title, "sibling model");
+        assert.equal(result.details.attempts.length, 1);
+        assert.equal(result.details.attempts[0].model, "gpt-5.1");
+      },
+    );
+  });
+});
+
+test("a provider-wide search error does not retry sibling models from the same provider", async () => {
+  const primary = openaiResponsesModel({ id: "gpt-5.1" });
+  const sibling = openaiResponsesModel({ id: "gpt-4.1" });
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: [primary, sibling] });
+
+  await withTempCache(async () => {
+    const calls = [];
+    await withAdapterPatch(
+      [
+        [
+          ADAPTERS.openai,
+          "search",
+          async (_ctx, model) => {
+            calls.push(model.id);
+            throw new Error("OpenAI API error (401 Unauthorized): invalid API key");
+          },
+        ],
+      ],
+      async () => {
+        const result = await runWebSearch({ query: "provider wide" }, ctx);
+        assert.equal(result.isError, true);
+        assert.deepEqual(calls, ["gpt-5.1"]);
+        assert.equal(result.details.attempts.length, 1);
+      },
+    );
+  });
+});
+
+test("a provider-wide fetch error does not retry sibling models from the same provider", async () => {
+  const primary = ollamaCloudModel({ provider: "ollama-cloud", id: "gpt-oss:120b" });
+  const sibling = ollamaCloudModel({ provider: "ollama-cloud", id: "qwen3:32b" });
+  const ctx = createMockCtx({
+    model: unsupportedLocalModel(),
+    availableModels: [primary, sibling],
+  });
+
+  await withTempCache(async () => {
+    const calls = [];
+    await withAdapterPatch(
+      [
+        [
+          ADAPTERS.ollama,
+          "fetch",
+          async (_ctx, model) => {
+            calls.push(model.id);
+            throw new Error("Ollama API error (401 Unauthorized): invalid key");
+          },
+        ],
+      ],
+      async () => {
+        const result = await runWebSearch({ urls: ["https://example.com/page"] }, ctx);
+        assert.equal(result.isError, true);
+        assert.deepEqual(calls, ["gpt-oss:120b"]);
+        assert.equal(result.details.attempts.filter((entry) => entry.phase === "fetch").length, 1);
+      },
+    );
+  });
+});
+
+test("provider-wide failures are classified separately from model-specific ones", () => {
+  assert.equal(isProviderWideFailure("OpenAI API error (401 Unauthorized): bad key"), true);
+  assert.equal(isProviderWideFailure("Anthropic API error (403 Forbidden): insufficient balance"), true);
+  assert.equal(isProviderWideFailure("fetch failed"), true);
+  assert.equal(isProviderWideFailure("Cannot convert argument to a ByteString"), true);
+  assert.equal(isProviderWideFailure("OpenAI API error (500 Internal Server Error): upstream"), true);
+  assert.equal(isProviderWideFailure("HTTP 429 Too Many Requests"), true);
+  assert.equal(
+    isProviderWideFailure(
+      "OpenAI API error (400 Bad Request): Codex/ChatGPT account does not support gpt-4.1",
+    ),
+    false,
+  );
+  assert.equal(isProviderWideFailure("Google API error (404): model not found"), false);
+  assert.equal(
+    isProviderWideFailure("OpenAI API error (400): max_tokens 500 is too large for this model"),
+    false,
+  );
 });
 
 test("search falls back to the next candidate and records the failed attempt", async () => {

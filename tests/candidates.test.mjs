@@ -154,6 +154,108 @@ test("a cached model from the current provider is not retried", async () => {
   });
 });
 
+test("modern models rank before legacy ones within a family", async () => {
+  const legacy = openaiResponsesModel({ id: "gpt-4.1" });
+  const modern = openaiResponsesModel({ id: "gpt-5.1" });
+  const ctx = ctxFor(unsupportedLocalModel(), [legacy, modern]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["openai/gpt-5.1", "openai/gpt-4.1"],
+    );
+  });
+});
+
+test("higher version numbers rank first within the same tier", async () => {
+  const older = openaiResponsesModel({ id: "gpt-6.1-luna" });
+  const newer = openaiResponsesModel({ id: "gpt-7.0-luna" });
+  const ctx = ctxFor(unsupportedLocalModel(), [older, newer]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["openai/gpt-7.0-luna", "openai/gpt-6.1-luna"],
+    );
+  });
+});
+
+test("OpenAI tiers rank luna before sol before astra", async () => {
+  const astra = openaiResponsesModel({ id: "gpt-6.1-astra" });
+  const sol = openaiResponsesModel({ id: "gpt-6.1-sol" });
+  const luna = openaiResponsesModel({ id: "gpt-6.1-luna" });
+  const ctx = ctxFor(unsupportedLocalModel(), [astra, sol, luna]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["openai/gpt-6.1-luna", "openai/gpt-6.1-sol", "openai/gpt-6.1-astra"],
+    );
+  });
+});
+
+test("Claude tiers rank haiku before sonnet before opus before fable", async () => {
+  const fable = anthropicModel({ id: "claude-fable-6-0" });
+  const opus = anthropicModel({ id: "claude-opus-5-5" });
+  const sonnet = anthropicModel({ id: "claude-sonnet-5-5" });
+  const haiku = anthropicModel({ id: "claude-haiku-5-5" });
+  const ctx = ctxFor(unsupportedLocalModel(), [fable, opus, sonnet, haiku]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      [
+        "anthropic/claude-haiku-5-5",
+        "anthropic/claude-sonnet-5-5",
+        "anthropic/claude-opus-5-5",
+        "anthropic/claude-fable-6-0",
+      ],
+    );
+  });
+});
+
+test("a family contributes alternate models only after every family primary", async () => {
+  const current = unsupportedLocalModel();
+  const openaiLegacy = openaiResponsesModel({ id: "gpt-4.1" });
+  const openaiModern = openaiResponsesModel({ id: "gpt-5.1" });
+  const deepseek = deepseekModel();
+  const ctx = ctxFor(current, [openaiLegacy, openaiModern, deepseek]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["deepseek/deepseek-chat", "openai/gpt-5.1", "openai/gpt-4.1"],
+    );
+  });
+});
+
+test("the current model's provider id is not retried with a different model", async () => {
+  const current = deepseekModel({ id: "deepseek-chat" });
+  const sibling = deepseekModel({ id: "deepseek-reasoner" });
+  const openai = openaiResponsesModel();
+  const ctx = ctxFor(current, [sibling, openai]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["deepseek/deepseek-chat", "openai/gpt-5.1"],
+    );
+  });
+});
+
+test("a different provider id in the current model's family is still tried", async () => {
+  const current = anthropicModel({ id: "claude-opus-5-5", provider: "zicc-anthropic" });
+  const other = anthropicModel({ id: "claude-haiku-5-5", provider: "opencode-go" });
+  const ctx = ctxFor(current, [other]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["zicc-anthropic/claude-opus-5-5", "opencode-go/claude-haiku-5-5"],
+    );
+  });
+});
+
 test("url-incapable candidates are filtered from fetch ordering", async () => {
   const current = openaiResponsesModel();
   const openai = openaiResponsesModel({ id: "gpt-4o" });
@@ -178,7 +280,8 @@ test("search and fetch candidate lists are deterministic and enforce caps", asyn
   await withResolution(ctxFor(current, models), undefined, (resolution) => {
     const search = getSearchCandidates(resolution);
     assert.equal(search.length, SEARCH_ATTEMPT_CAP);
-    assert.equal(candidateKey(search[0]), "openai-0/gpt-5-0");
+    // Newer version numbers rank first, so `gpt-5-19` beats `gpt-5-0`.
+    assert.equal(candidateKey(search[0]), "openai-19/gpt-5-19");
     assert.equal(new Set(search.map((entry) => entry.model.provider)).size, search.length);
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "pi-better-web-search",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A better provider-native web_search tool for pi: raw results, automatic provider fallback, URL analysis, and native DeepSeek Search/Fetch.",
   "type": "module",
   "license": "MIT",
