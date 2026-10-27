@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.6
+
+- Keep oversized results as valid JSON, sharing the character budget across
+  search results and fetched pages rather than cutting off the serialized tail.
+  Report affected paths and mark shortened strings; retain unchanged provider
+  data when it fits, and compact whitespace before dropping data.
+- Fix premature truncation immediately below the configured output limit.
+
 ## 0.1.5
 
 - Rank models inside a provider family by capability tier first (cheapest tier

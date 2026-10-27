@@ -8,7 +8,7 @@ provider supports it, automatically falls back across authenticated providers,
 and returns provider data as-is.
 
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/badge/npm-v0.1.5-blue)](https://www.npmjs.com/package/pi-better-web-search)
+[![npm](https://img.shields.io/npm/v/pi-better-web-search)](https://www.npmjs.com/package/pi-better-web-search)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Pi 1.3](https://img.shields.io/badge/Pi-1.3-blue.svg)](https://pi.dev)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
@@ -58,8 +58,8 @@ Requirements: **pi 1.3+** and **Node.js 22.19+**.
   provider supports URL analysis. `urls` can be used alone or with `query`.
 - **Raw results.** Provider data is returned in a JSON wrapper without
   deduplication, URL normalization, junk filtering, re-ranking, summarization,
-  citation-marker insertion, or appended Sources sections. Only a final
-  character guard truncates oversized output.
+  citation-marker insertion, or appended Sources sections. A final character
+  guard applies structured truncation only to oversized output.
 - **Correct semantics.** The tool description is exactly
   `Search the web or analyze specified URLs.` The schema makes clear that
   `urls` does not require `query`.
@@ -250,18 +250,36 @@ this:
 - Citation markers are not inserted, and no "Sources" or "Additional results"
   sections are appended.
 - Redirects are not resolved and sources are not derived.
-- Unknown provider fields are preserved.
+- Unknown provider fields are preserved when the result fits the size guard.
 
-The only transformation is a final output-size guard. The model-facing JSON is
-truncated to **64,000 characters** by default and marked with `[Truncated]`;
-`details.truncated` is set to `true`. Change the limit with:
+A final output-size guard limits successful model-facing results to **64,000
+Unicode code points** by default. Normal-sized results retain their original
+fields and formatting. If indentation alone exceeds the limit, compact JSON is
+returned without dropping data or setting the truncation flag.
+
+When even compact JSON is too large, the guard allocates space across sibling
+fields and array entries, redistributing unused space. It tries to preserve
+identifying fields such as URLs, titles and errors, while shortening long
+strings or omitting fields and trailing array entries when needed. The result
+remains valid JSON. Shortened strings end in `…[truncated]` when space permits,
+and the model-facing `_truncation` object reports `truncated`, `originalChars`
+(the original indented JSON size), and `affectedPaths`. `moreAffectedPaths`
+indicates that the path list is incomplete. Array paths can indicate omitted
+entries; with very small budgets, not every URL or field can be preserved.
+`details.truncated` is also set to `true` when data is actually removed.
+
+Change the limit **before starting pi**:
 
 ```bash
 export PI_BETTER_WEB_SEARCH_MAX_CHARS=100000
 ```
 
-Truncation is Unicode code-point safe. The guard is intentionally applied after
-the raw JSON is assembled so normal-sized provider payloads are not altered.
+In PowerShell, use `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`. The limit
+is in code points, **not tokens**, and does not adapt to the current model's
+context window. Extremely small limits below 19 characters cannot fit a
+model-visible truncation flag; the result is still valid JSON and
+`details.truncated` remains true. There is no continuation/pagination cache:
+retry individual URLs or raise the limit if more content is needed.
 
 ## Exposure rules
 

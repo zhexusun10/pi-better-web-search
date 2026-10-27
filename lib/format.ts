@@ -1,9 +1,10 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { formatJsonWithinLimit } from "./truncate-json.ts";
 
-const configuredOutputLimit = Number(process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS);
+const configuredOutputLimit = Math.floor(Number(process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS));
 export const MAX_OUTPUT_CHARS =
-  Number.isFinite(configuredOutputLimit) && configuredOutputLimit > 0
-    ? Math.floor(configuredOutputLimit)
+  Number.isFinite(configuredOutputLimit) && configuredOutputLimit >= 1
+    ? configuredOutputLimit
     : 64_000;
 
 export interface WebSearchOutput {
@@ -41,8 +42,6 @@ export interface WebSearchDetails {
   error?: string;
 }
 
-const TRUNCATION_MARKER = "\n\n[Truncated]";
-
 /**
  * Truncate by Unicode code point so a surrogate pair is never split. The
  * returned `text` is at most `maxChars` code points.
@@ -61,11 +60,9 @@ export function formatSuccess(
   output: WebSearchOutput,
   details: WebSearchDetails,
 ): AgentToolResult<WebSearchDetails> {
-  const json = JSON.stringify(output, null, 2);
-  const marker = TRUNCATION_MARKER.slice(0, Math.max(0, MAX_OUTPUT_CHARS));
-  const { text, truncated } = truncateText(json, Math.max(0, MAX_OUTPUT_CHARS - marker.length));
+  const { text, truncated } = formatJsonWithinLimit(output, MAX_OUTPUT_CHARS);
   return {
-    content: [{ type: "text", text: truncated ? text + marker : text }],
+    content: [{ type: "text", text }],
     details: truncated ? { ...details, truncated: true } : details,
   };
 }

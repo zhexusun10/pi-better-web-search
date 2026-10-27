@@ -524,8 +524,11 @@ test("oversized output is truncated at the configured character limit", async (t
     assert.equal(result.isError, undefined);
     assert.equal(result.details.truncated, true);
     assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
-    assert.ok(result.content[0].text.endsWith("[Truncated]"));
-    assert.match(result.content[0].text, /^\{\n {2}"query": "huge output",/);
+    const output = JSON.parse(result.content[0].text);
+    assert.equal(output._truncation.truncated, true);
+    assert.equal(output.query, "huge output");
+    assert.equal(output.search.results[0].title, "Huge");
+    assert.match(output.search.results[0].content, /…\[truncated\]$/);
   });
 });
 

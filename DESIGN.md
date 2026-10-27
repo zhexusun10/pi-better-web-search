@@ -32,9 +32,9 @@ manager, preference cache, and orchestrator described below.
 4. **Raw results only**: Do not post-process provider search results. No dedupe,
    URL normalization, junk-URL filtering, re-ranking, summarizing,
    citation-marker insertion, appended "Sources"/"Additional results" sections,
-   redirect resolution, or source derivation. Trust the provider output. Only
-   enforce a maximum output character count and truncate the final model-facing
-   text. Return raw provider data in a JSON wrapper.
+   redirect resolution, or source derivation. Trust the provider output. Return
+   raw provider data in a JSON wrapper; only when the final output exceeds the
+   character guard may fields or entries be structurally truncated.
 5. **Description/schema semantics**: The tool description must start exactly
    `Search the web or analyze specified URLs.` Property descriptions must make
    clear that `urls` can be used alone and together with `query`.
@@ -342,7 +342,8 @@ used alone or together with `query`.
 `src/format.ts` defines:
 
 ```ts
-export const MAX_OUTPUT_CHARS = Number(process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS) || 64_000;
+// Positive, finite integer from PI_BETTER_WEB_SEARCH_MAX_CHARS, default 64,000.
+export const MAX_OUTPUT_CHARS: number;
 
 export interface WebSearchOutput {
   query?: string;
@@ -405,12 +406,17 @@ Model-facing content is JSON only:
 Rules:
 
 - Pass `results`, `citations`, `groundingMetadata`, `urlContextMetadata`, and
-  fetch `data` through unchanged. Do not normalize, dedupe, filter, rank,
-  summarize, resolve redirects, or derive sources.
-- `formatSuccess(output, details)` JSON-stringifies with two-space indentation,
-  truncates the final text to `MAX_OUTPUT_CHARS` (Unicode code-point safe), and
-  appends the short marker `\n\n[Truncated]` inside that budget. It sets
-  `details.truncated = true` when truncation occurred.
+  fetch `data` through unchanged when within the limit. Do not normalize,
+  dedupe, filter, rank, summarize, resolve redirects, or derive sources.
+- `formatSuccess(output, details)` first uses two-space JSON; if necessary it
+  tries compact JSON without data loss. If compact JSON exceeds
+  `MAX_OUTPUT_CHARS`, `lib/truncate-json.ts` allocates space across sibling
+  fields and array entries, preserving identifiers where possible and keeping
+  the result valid JSON. Shortened strings get `…[truncated]` where space
+  permits. A top-level `_truncation` records the original indented size and
+  affected paths; `details.truncated = true` reports actual data loss. An
+  extremely small limit may only fit the details flag. The cap counts Unicode
+  code points, not tokens; there is no continuation cache.
 - `formatError(message, details)` returns exactly
   `Failed: <message>`, the supplied details, and `isError: true`.
 - `resultCount` and `fetchedCount` are metadata only. Do not use them to rewrite

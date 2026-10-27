@@ -435,9 +435,10 @@ test("only URLs requested and none fetched returns an error", async () => {
   });
 });
 
-test("oversized output is truncated after raw JSON is assembled", async () => {
+test("oversized search and fetch results share the budget and remain valid JSON", async () => {
   const deepseek = deepseekModel();
   const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek] });
+  const urls = Array.from({ length: 4 }, (_, index) => `https://example.com/page-${index}`);
 
   await withTempCache(async () => {
     await withAdapterPatch(
@@ -445,15 +446,46 @@ test("oversized output is truncated after raw JSON is assembled", async () => {
         [
           ADAPTERS.deepseek,
           "search",
-          async () => ({ results: [{ text: "x".repeat(MAX_OUTPUT_CHARS + 1_000) }] }),
+          async () => ({
+            results: Array.from({ length: 10 }, (_, index) => ({
+              title: `result-${index}`,
+              url: `https://example.com/result-${index}`,
+              content: "s".repeat(8_000),
+            })),
+          }),
+        ],
+        [
+          ADAPTERS.deepseek,
+          "fetch",
+          async (_ctx, _model, requested) => ({
+            entries: requested.map((url, index) => ({
+              url,
+              data: { title: `page-${index}`, content: "p".repeat(30_000) },
+            })),
+          }),
         ],
       ],
       async () => {
-        const result = await runWebSearch({ query: "truncate" }, ctx);
+        const result = await runWebSearch({ query: "truncate", urls }, ctx);
         assert.equal(result.isError, undefined);
         assert.equal(result.details.truncated, true);
-        assert.ok(result.content[0].text.length <= MAX_OUTPUT_CHARS);
-        assert.ok(result.content[0].text.endsWith("[Truncated]"));
+        assert.equal(result.details.fetchedCount, 4);
+        assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
+        const output = JSON.parse(result.content[0].text);
+        assert.equal(output._truncation.truncated, true);
+        assert.equal(output.search.results.length, 10);
+        assert.deepEqual(output.fetched.map((entry) => entry.url), urls);
+        for (const [index, entry] of output.search.results.entries()) {
+          assert.equal(entry.title, `result-${index}`);
+          assert.ok(entry.content.length > 100);
+          assert.match(entry.content, /…\[truncated\]$/);
+        }
+        for (const [index, entry] of output.fetched.entries()) {
+          assert.equal(entry.data.title, `page-${index}`);
+          assert.ok(entry.data.content.length > 100);
+          assert.match(entry.data.content, /…\[truncated\]$/);
+          assert.ok(output._truncation.affectedPaths.includes(`$.fetched[${index}].data.content`));
+        }
       },
     );
   });

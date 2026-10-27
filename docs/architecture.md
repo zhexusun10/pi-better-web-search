@@ -38,7 +38,7 @@ tool execute
   ├─ run search candidates until one succeeds
   ├─ run fetch candidates per URL until each URL succeeds or candidates end
   ├─ write search/fetch preferences + fingerprint on success
-  └─ format raw JSON, truncate only if the character guard is exceeded
+  └─ format raw JSON; compact or structurally truncate if the guard is exceeded
 ```
 
 ## Exposure
@@ -160,9 +160,16 @@ The result is a JSON wrapper:
 
 Fields inside `search` and `fetched[].data` are provider data. The extension does
 not deduplicate, normalize, filter, re-rank, summarize, insert citation markers,
-or append source sections. The only transformation is the final character
-guard: the serialized JSON is truncated at 64,000 characters by default
-(`PI_BETTER_WEB_SEARCH_MAX_CHARS`) and marked with `[Truncated]`.
+or append source sections. The final guard keeps successful model-facing output
+within 64,000 Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).
+It preserves ordinary formatted JSON, or uses compact JSON if that alone fits.
+Otherwise it budgets sibling fields and array entries independently, preferring
+identifiers when space is tight. Strings can be shortened, and fields or trailing
+array entries omitted; the output remains valid JSON. `_truncation` records the
+original indented JSON length and affected paths, while `details.truncated` marks
+actual data loss. For very small limits below 19 characters, only the details
+flag fits. This is a character guard, not a token or model-context limit; it does
+not provide pagination or retain the complete provider payload for later use.
 
 ## Provider adapter contract
 

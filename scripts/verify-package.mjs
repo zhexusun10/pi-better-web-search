@@ -55,6 +55,8 @@ const required = [
   "CONTRIBUTING.md",
   "SECURITY.md",
   "extensions/index.ts",
+  "lib/format.ts",
+  "lib/truncate-json.ts",
   "lib/search.ts",
   "lib/candidates.ts",
   "lib/providers/deepseek.ts",

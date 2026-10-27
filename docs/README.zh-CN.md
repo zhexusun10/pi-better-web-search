@@ -46,7 +46,7 @@ pi install ./path/to/pi-better-web-search
   `urls`。`urls` 可以单独使用，也可以和 `query` 一起使用。
 - **原始结果。** provider 数据放在 JSON 外层中返回，不去重、不规范化 URL、
   不过滤垃圾 URL、不重排、不总结、不插入 citation 标记、不追加 Sources。
-  只做最终字符数限制和截断。
+  只有超出最终字符数限制时才进行结构化截断。
 - **正确语义。** 工具描述是 `Search the web or analyze specified URLs.`；
   schema 明确说明 `urls` 不依赖 `query`。
 - **不碰系统提示词。** 不添加 prompt snippet、guideline、loadout hook、
@@ -215,17 +215,32 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
 - 结果不重排、不总结。
 - 不插入 citation 标记，不追加 "Sources" 或 "Additional results"。
 - 不解析 redirect，不派生 sources。
-- provider 的未知字段保留。
+- 未超出大小限制时，provider 的未知字段也会保留。
 
-唯一的转换是最终输出大小保护。模型可见的 JSON 默认截断到
-**64,000 字符**，末尾标记 `[Truncated]`，`details.truncated` 为 `true`。
-可通过环境变量调整：
+最终大小保护默认限制成功结果不超过 **64,000 个 Unicode code point**。
+未超限时保留原始字段及格式；如果只是缩进导致超限，会先压缩 JSON，
+不丢失数据，也不标记为截断。
+
+压缩后仍超限时，按字段和数组条目分配预算，未用完的额度会重新分配；
+尽量保留 URL、标题和错误等标识信息。必要时会缩短字符串或省略字段、
+数组末尾的条目，但返回值始终是合法 JSON。空间允许时，缩短的字符串以
+`…[truncated]` 结尾；模型可见的 `_truncation` 对象包含 `truncated`、
+`originalChars`（原始缩进 JSON 的字符数）和 `affectedPaths`。
+`moreAffectedPaths` 表示路径列表不完整，数组路径也可能表示部分条目被省略。
+预算极小时无法保证保留所有 URL 或字段。确实丢失数据时，
+`details.truncated` 也会设为 `true`。
+
+可在**启动 pi 之前**通过环境变量调整：
 
 ```bash
 export PI_BETTER_WEB_SEARCH_MAX_CHARS=100000
 ```
 
-截断按 Unicode code point 处理，不会拆开 surrogate pair。
+PowerShell 使用 `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`。
+上限是 code point，**不是 token**，不会根据当前模型的上下文窗口自动调整。
+极小上限（少于 19 字符）无法在模型可见内容中容纳截断标记，此时仍返回
+合法 JSON，并在 `details.truncated` 中报告。当前没有续读或分页缓存；
+需要更多内容时可单独重新抓取 URL 或提高上限。
 
 ## 暴露规则
 
