@@ -193,10 +193,12 @@ test("truncateText is Unicode-safe and format helpers only wrap JSON", () => {
   const huge = formatSuccess({ query: "x".repeat(MAX_OUTPUT_CHARS + 100) }, { attempts: [] });
   assert.equal(huge.details.truncated, true);
   assert.ok(Array.from(huge.content[0].text).length <= MAX_OUTPUT_CHARS);
-  const truncatedOutput = JSON.parse(huge.content[0].text);
-  assert.equal(truncatedOutput._truncation.truncated, true);
-  assert.ok(truncatedOutput._truncation.affectedPaths.includes("$.query"));
-  assert.match(truncatedOutput.query, /…\[truncated\]$/);
+  const suffix = "\n[truncated]";
+  assert.ok(huge.content[0].text.endsWith(suffix));
+  const truncatedOutput = JSON.parse(huge.content[0].text.slice(0, -suffix.length));
+  assert.deepEqual(Object.keys(truncatedOutput), ["query"]);
+  assert.ok(truncatedOutput.query.length < MAX_OUTPUT_CHARS + 100);
+  assert.match(truncatedOutput.query, /^x+$/);
 
   const error = formatError("all providers failed", { attempts: [], error: "all providers failed" });
   assert.deepEqual(error.content, [{ type: "text", text: "Failed: all providers failed" }]);

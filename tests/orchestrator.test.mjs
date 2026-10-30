@@ -435,7 +435,7 @@ test("only URLs requested and none fetched returns an error", async () => {
   });
 });
 
-test("oversized search and fetch results share the budget and remain valid JSON", async () => {
+test("oversized search and fetch results share the budget with one trailing marker", async () => {
   const deepseek = deepseekModel();
   const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek] });
   const urls = Array.from({ length: 4 }, (_, index) => `https://example.com/page-${index}`);
@@ -471,20 +471,26 @@ test("oversized search and fetch results share the budget and remain valid JSON"
         assert.equal(result.details.truncated, true);
         assert.equal(result.details.fetchedCount, 4);
         assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
-        const output = JSON.parse(result.content[0].text);
-        assert.equal(output._truncation.truncated, true);
+        const text = result.content[0].text;
+        const suffix = "\n[truncated]";
+        assert.ok(text.startsWith('{"query":"truncate",'));
+        assert.ok(text.endsWith(suffix));
+        assert.equal(text.match(/\[truncated\]/g)?.length, 1);
+        const output = JSON.parse(text.slice(0, -suffix.length));
+        assert.deepEqual(Object.keys(output), ["query", "search", "fetched"]);
         assert.equal(output.search.results.length, 10);
         assert.deepEqual(output.fetched.map((entry) => entry.url), urls);
         for (const [index, entry] of output.search.results.entries()) {
           assert.equal(entry.title, `result-${index}`);
           assert.ok(entry.content.length > 100);
-          assert.match(entry.content, /…\[truncated\]$/);
+          assert.ok(entry.content.length < 8_000);
+          assert.match(entry.content, /^s+$/);
         }
         for (const [index, entry] of output.fetched.entries()) {
           assert.equal(entry.data.title, `page-${index}`);
           assert.ok(entry.data.content.length > 100);
-          assert.match(entry.data.content, /…\[truncated\]$/);
-          assert.ok(output._truncation.affectedPaths.includes(`$.fetched[${index}].data.content`));
+          assert.ok(entry.data.content.length < 30_000);
+          assert.match(entry.data.content, /^p+$/);
         }
       },
     );

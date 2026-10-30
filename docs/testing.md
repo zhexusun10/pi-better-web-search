@@ -17,7 +17,7 @@ npm run verify:package
   tarball contains runtime sources, docs, assets, and metadata, while excluding
   tests, scripts, CI files, the local reference checkout, and `DESIGN.md`.
 - `npm run build` runs the checks, tests, package verification, and packs
-  `dist/pi-better-web-search-0.1.6.tgz`.
+  `dist/pi-better-web-search-0.1.7.tgz`.
 
 Tests import the TypeScript sources directly. The suite mocks `globalThis.fetch`
 and uses temporary cache directories. Coverage includes:
@@ -30,8 +30,9 @@ and uses temporary cache directories. Coverage includes:
 - search and fetch fallback, including per-URL fallback;
 - provider request shapes and SSE parsing;
 - HTTP/stream errors and abort propagation;
-- structured character-guard truncation, valid JSON, Unicode and escaping,
-  boundary lengths, and fair allocation across search results and URLs;
+- structured character-guard truncation, a single trailing marker, valid JSON
+  before the marker, Unicode and escaping, boundary lengths, fair allocation,
+  and intact links and identifiers across search results and fetched pages;
 - one-tool registration and no system-prompt hooks.
 
 ## Live DeepSeek test

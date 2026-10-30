@@ -511,10 +511,11 @@ test("oversized output is truncated at the configured character limit", async (t
       availableModels: [deepseekModel()],
     });
     const hugeContent = "x".repeat(MAX_OUTPUT_CHARS + 5_000);
+    const longUrl = `https://example.com/${"u".repeat(40_000)}`;
     mockFetch(t, ({ url }) => {
       if (url === DEEPSEEK_SEARCH_URL) {
         return jsonResponse({
-          results: [{ title: "Huge", content: hugeContent }],
+          results: [{ title: "Huge", url: longUrl, content: hugeContent }],
         });
       }
       return unexpected(url);
@@ -524,11 +525,18 @@ test("oversized output is truncated at the configured character limit", async (t
     assert.equal(result.isError, undefined);
     assert.equal(result.details.truncated, true);
     assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
-    const output = JSON.parse(result.content[0].text);
-    assert.equal(output._truncation.truncated, true);
+    const text = result.content[0].text;
+    const suffix = "\n[truncated]";
+    assert.ok(text.startsWith('{"query":"huge output",'));
+    assert.ok(text.endsWith(suffix));
+    assert.equal(text.match(/\[truncated\]/g)?.length, 1);
+    const output = JSON.parse(text.slice(0, -suffix.length));
+    assert.deepEqual(Object.keys(output), ["query", "search"]);
     assert.equal(output.query, "huge output");
     assert.equal(output.search.results[0].title, "Huge");
-    assert.match(output.search.results[0].content, /…\[truncated\]$/);
+    assert.equal(output.search.results[0].url, longUrl);
+    assert.ok(output.search.results[0].content.length < hugeContent.length);
+    assert.ok(hugeContent.startsWith(output.search.results[0].content));
   });
 });
 

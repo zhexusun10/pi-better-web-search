@@ -342,7 +342,7 @@ used alone or together with `query`.
 `src/format.ts` defines:
 
 ```ts
-// Positive, finite integer from PI_BETTER_WEB_SEARCH_MAX_CHARS, default 64,000.
+// Positive, finite integer from PI_BETTER_WEB_SEARCH_MAX_CHARS, default 96,000.
 export const MAX_OUTPUT_CHARS: number;
 
 export interface WebSearchOutput {
@@ -411,12 +411,15 @@ Rules:
 - `formatSuccess(output, details)` first uses two-space JSON; if necessary it
   tries compact JSON without data loss. If compact JSON exceeds
   `MAX_OUTPUT_CHARS`, `lib/truncate-json.ts` allocates space across sibling
-  fields and array entries, preserving identifiers where possible and keeping
-  the result valid JSON. Shortened strings get `…[truncated]` where space
-  permits. A top-level `_truncation` records the original indented size and
-  affected paths; `details.truncated = true` reports actual data loss. An
-  extremely small limit may only fit the details flag. The cap counts Unicode
-  code points, not tokens; there is no continuation cache.
+  fields and array entries. Recognized link and identity fields stay whole;
+  entries or branches that cannot fit are omitted rather than returning partial
+  links, and text cuts do not leave partial URL tokens. Provider order is not
+  changed. The JSON portion remains valid and is followed by a single
+  `[truncated]` line; no truncation metadata or per-string markers are added. The complete text
+  is therefore not valid JSON. `details.truncated = true` reports actual data
+  loss. When truncation is needed with limits of 11–13 characters, return only
+  the marker; smaller limits return a minimal JSON value instead. The cap counts
+  Unicode code points, not tokens; there is no continuation cache.
 - `formatError(message, details)` returns exactly
   `Failed: <message>`, the supplied details, and `isError: true`.
 - `resultCount` and `fetchedCount` are metadata only. Do not use them to rewrite

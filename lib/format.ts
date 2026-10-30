@@ -5,7 +5,7 @@ const configuredOutputLimit = Math.floor(Number(process.env.PI_BETTER_WEB_SEARCH
 export const MAX_OUTPUT_CHARS =
   Number.isFinite(configuredOutputLimit) && configuredOutputLimit >= 1
     ? configuredOutputLimit
-    : 64_000;
+    : 96_000;
 
 export interface WebSearchOutput {
   query?: string;

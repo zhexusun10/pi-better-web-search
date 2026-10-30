@@ -252,20 +252,24 @@ this:
 - Redirects are not resolved and sources are not derived.
 - Unknown provider fields are preserved when the result fits the size guard.
 
-A final output-size guard limits successful model-facing results to **64,000
+A final output-size guard limits successful model-facing results to **96,000
 Unicode code points** by default. Normal-sized results retain their original
 fields and formatting. If indentation alone exceeds the limit, compact JSON is
 returned without dropping data or setting the truncation flag.
 
 When even compact JSON is too large, the guard allocates space across sibling
-fields and array entries, redistributing unused space. It tries to preserve
-identifying fields such as URLs, titles and errors, while shortening long
-strings or omitting fields and trailing array entries when needed. The result
-remains valid JSON. Shortened strings end in `…[truncated]` when space permits,
-and the model-facing `_truncation` object reports `truncated`, `originalChars`
-(the original indented JSON size), and `affectedPaths`. `moreAffectedPaths`
-indicates that the path list is incomplete. Array paths can indicate omitted
-entries; with very small budgets, not every URL or field can be preserved.
+fields and array entries, redistributing unused space. Recognized link and
+identity fields (`url`, `uri`, `href`, `link`, `title`, `name`, `id`, and common
+aliases) stay complete; if they cannot fit, the associated entry or branch is
+omitted instead. Standalone URLs and entries in link/citation arrays also stay
+whole. When a text cut would split a recognizable embedded URL token (such as
+`https://`, `mailto:`, or `www.`), the incomplete token is omitted. Relative
+links or bare domains in unrecognized fields cannot always be identified. Other long strings may be shortened, and fields or trailing array
+entries omitted; results are not re-ranked or summarized.
+
+The JSON portion remains valid, followed by a single `[truncated]` line. No
+truncation metadata or per-string markers are added to the model-facing JSON.
+Because of the trailing line, the complete text is not itself valid JSON.
 `details.truncated` is also set to `true` when data is actually removed.
 
 Change the limit **before starting pi**:
@@ -276,10 +280,12 @@ export PI_BETTER_WEB_SEARCH_MAX_CHARS=100000
 
 In PowerShell, use `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`. The limit
 is in code points, **not tokens**, and does not adapt to the current model's
-context window. Extremely small limits below 19 characters cannot fit a
-model-visible truncation flag; the result is still valid JSON and
-`details.truncated` remains true. There is no continuation/pagination cache:
-retry individual URLs or raise the limit if more content is needed.
+context window. The marker counts toward the limit. If truncation is needed and
+the limit is 11–13 characters, only `[truncated]` is returned; below 11
+characters the marker does not fit and only a minimal JSON value is returned.
+`details.truncated` remains true in both cases. There is no continuation or
+pagination cache: retry individual URLs or raise the limit if more content is
+needed.
 
 ## Exposure rules
 
@@ -384,7 +390,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-0.1.0.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-0.1.7.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

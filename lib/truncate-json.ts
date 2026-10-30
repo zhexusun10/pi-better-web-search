@@ -1,18 +1,5 @@
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-interface ChangeTracker {
-  paths: string[];
-  seen: Set<string>;
-  more: boolean;
-}
-
-interface TruncationInfo {
-  truncated: true;
-  originalChars: number;
-  affectedPaths: string[];
-  moreAffectedPaths: boolean;
-}
-
 interface Slot {
   index: number;
   key?: string;
@@ -22,42 +9,33 @@ interface Slot {
   allocation: number;
 }
 
-const MAX_RECORDED_PATHS = 64;
-const MAX_PATH_LENGTH = 160;
-const MAX_PATH_BUDGET = 2_048;
-const STRING_MARKER = "…[truncated]";
-const IDENTITY_KEYS = ["url", "uri", "title", "name", "id", "error", "status", "query", "answer", "content", "text"];
+const TRUNCATION_MARKER = "[truncated]";
+const IDENTITY_KEYS = ["url", "uri", "href", "link", "title", "name", "id", "error", "status", "query", "answer", "content", "text"];
 const IMPORTANT_KEYS = [...IDENTITY_KEYS, "search", "fetched", "results", "data"];
 const KEY_PRIORITY = new Map(IMPORTANT_KEYS.map((key, index) => [key, index]));
+
+/** Link and identity fields are kept intact or their containing entry is omitted. */
+function isProtectedKey(key: string): boolean {
+  return /^(?:url|uri|href|link|permalink|website|title|name|id)$/i.test(key)
+    || /[_-](?:url|uri|href|link|permalink|website|title|name|id)$/i.test(key)
+    || /(?:URL|URI|HREF|LINK|TITLE|NAME|Url|Uri|Href|Link|Title|Name|Id|ID)$/.test(key);
+}
+
+function isLinkCollectionKey(key: string): boolean {
+  return /^(?:urls?|uris?|hrefs?|links?|permalinks?|websites?|titles?|names?|ids?|sources?|citations?)$/i.test(key)
+    || /[_-](?:urls|uris|hrefs|links|titles|names|ids)$/i.test(key)
+    || /(?:URLs|URIs|Urls|Uris|Hrefs|Links|Titles|Names|Ids|IDs)$/.test(key);
+}
+
+function isStandaloneUrl(value: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]{0,31}:\/\/|mailto:|urn:|doi:|tel:|www\.)\S+$/i.test(value);
+}
 
 /** Count Unicode code points, rather than UTF-16 code units. */
 function charCount(text: string): number {
   let count = 0;
   for (const _character of text) count += 1;
   return count;
-}
-
-function recordChange(tracker: ChangeTracker, path: string): void {
-  if (tracker.seen.has(path)) return;
-  if (tracker.paths.length >= MAX_RECORDED_PATHS) {
-    tracker.more = true;
-    return;
-  }
-  tracker.seen.add(path);
-  tracker.paths.push(path);
-}
-
-function propertyPath(parent: string, key: string): string {
-  // A very long or unusual provider field name is represented by its parent,
-  // rather than allowing an unbounded field name to consume the path budget.
-  if (parent.length + key.length > MAX_PATH_LENGTH) return parent;
-  if (/^[A-Za-z_$][\w$]*$/.test(key)) return `${parent}.${key}`;
-  return `${parent}[${JSON.stringify(key)}]`;
-}
-
-function indexPath(parent: string, index: number): string {
-  const path = `${parent}[${index}]`;
-  return path.length <= MAX_PATH_LENGTH ? path : parent;
 }
 
 /** Encoded length of one code point inside a JSON string (without quotes). */
@@ -71,10 +49,8 @@ function encodedCharacterLength(character: string): number {
 }
 
 function fitString(value: string, budget: number): string {
-  // A JSON string needs two quotes. Include a marker whenever it fits; paths in
-  // _truncation also identify shortened strings when the budget is very small.
-  const marker = budget >= charCount(STRING_MARKER) + 2 ? STRING_MARKER : budget >= 3 ? "…" : "";
-  let remaining = budget - 2 - charCount(marker);
+  // Reserve the quotes; the single truncation marker is added after the JSON.
+  let remaining = budget - 2;
   const prefix: string[] = [];
   for (const character of value) {
     const size = encodedCharacterLength(character);
@@ -82,7 +58,19 @@ function fitString(value: string, budget: number): string {
     prefix.push(character);
     remaining -= size;
   }
-  return prefix.join("") + marker;
+  const visible = prefix.join("");
+  if (visible.length === value.length) return visible;
+
+  // A cut inside a URL embedded in prose must not leave a plausible but broken
+  // link. Drop the incomplete URL token instead of changing its address.
+  const urlStart = /\b(?:[a-z][a-z0-9+.-]{0,31}:\/\/|mailto:|urn:|doi:|tel:|www\.)/gi;
+  for (let match = urlStart.exec(value); match && match.index < visible.length; match = urlStart.exec(value)) {
+    let end = match.index + match[0].length;
+    while (end < value.length && !/\s/.test(value[end])) end += 1;
+    if (end > visible.length) return visible.slice(0, match.index);
+    urlStart.lastIndex = end;
+  }
+  return visible;
 }
 
 /** Distribute the available space fairly, giving unused space to larger values. */
@@ -116,8 +104,9 @@ function allocate(slots: Slot[], available: number): void {
   }
 }
 
-function createFitter(tracker: ChangeTracker) {
+function createFitter() {
   const sizes = new WeakMap<object, number>();
+  const requiredSizes = new WeakMap<object, number>();
 
   const sizeOf = (value: JsonValue): number => {
     if (value !== null && typeof value === "object") {
@@ -130,31 +119,61 @@ function createFitter(tracker: ChangeTracker) {
     return charCount(JSON.stringify(value));
   };
 
-  const minimumSize = (value: JsonValue): number => {
-    if (typeof value === "string" || Array.isArray(value)) return 2; // "" or []
+  function requiredPropertySize(key: string, value: JsonValue): number | undefined {
+    if (isProtectedKey(key) && !Array.isArray(value)) return sizeOf(value);
     if (value !== null && typeof value === "object") {
-      // An array of hundreds of empty objects is not useful. Reserve enough
-      // for one identifying or text field when the item has one; if the
-      // budget cannot accommodate all entries, report an omitted suffix.
-      for (const key of IDENTITY_KEYS) {
-        if (!Object.hasOwn(value, key)) continue;
-        const child = value[key];
+      if (Array.isArray(value)) return undefined;
+      const nested = requiredSize(value);
+      return nested > 0 ? nested : undefined;
+    }
+    if (typeof value === "string" && isStandaloneUrl(value)) return sizeOf(value);
+    return undefined;
+  }
+
+  // Reserve every direct or nested identity field before allocating space to
+  // optional content. Arrays can still omit a suffix of complete entries.
+  function requiredSize(value: { [key: string]: JsonValue }): number {
+    const cached = requiredSizes.get(value);
+    if (cached !== undefined) return cached;
+    let size = 2;
+    let count = 0;
+    for (const [key, child] of Object.entries(value)) {
+      const required = requiredPropertySize(key, child);
+      if (required === undefined) continue;
+      size += (count > 0 ? 1 : 0) + charCount(JSON.stringify(key)) + 1 + required;
+      count += 1;
+    }
+    const result = count > 0 ? size : 0;
+    requiredSizes.set(value, result);
+    return result;
+  }
+
+  const minimumSize = (value: JsonValue, key = "", linkCollection = false): number => {
+    if (Array.isArray(value)) return 2; // []
+    if (isProtectedKey(key)) return sizeOf(value);
+    if (typeof value === "string") {
+      return linkCollection || isStandaloneUrl(value) ? sizeOf(value) : 2;
+    }
+    if (value !== null && typeof value === "object") {
+      const required = requiredSize(value);
+      if (required > 0) return required;
+      // Avoid arrays of empty objects when a useful text field is available.
+      for (const identity of IDENTITY_KEYS) {
+        if (!Object.hasOwn(value, identity)) continue;
+        const child = value[identity];
         if (child !== null && typeof child === "object") continue;
         const childMinimum = typeof child === "string" ? Math.min(sizeOf(child), 128) : sizeOf(child);
-        return 2 + charCount(JSON.stringify(key)) + 1 + childMinimum;
+        return 2 + charCount(JSON.stringify(identity)) + 1 + childMinimum;
       }
       return 2;
     }
     return sizeOf(value);
   };
 
-  const fit = (value: JsonValue, budget: number, path: string): JsonValue => {
+  const fit = (value: JsonValue, budget: number, linkCollection = false, root = false): JsonValue => {
     if (sizeOf(value) <= budget) return value;
 
-    if (typeof value === "string") {
-      recordChange(tracker, path);
-      return fitString(value, budget);
-    }
+    if (typeof value === "string") return fitString(value, budget);
 
     if (Array.isArray(value)) {
       const slots: Slot[] = [];
@@ -162,11 +181,10 @@ function createFitter(tracker: ChangeTracker) {
       let minimums = 0;
       for (let index = 0; index < value.length; index += 1) {
         const child = value[index];
-        const minimum = minimumSize(child);
+        const minimum = minimumSize(child, "", linkCollection);
         const punctuation = slots.length > 0 ? 1 : 0;
         if (fixed + punctuation + minimums + minimum > budget) {
-          // Preserve array order and report that one or more entries were omitted.
-          recordChange(tracker, path);
+          // Preserve array order when some entries must be omitted.
           break;
         }
         fixed += punctuation;
@@ -174,29 +192,30 @@ function createFitter(tracker: ChangeTracker) {
         slots.push({ index, value: child, minimum, full: sizeOf(child), allocation: minimum });
       }
       allocate(slots, budget - fixed);
-      return slots.map((slot) => fit(slot.value, slot.allocation, indexPath(path, slot.index)));
+      return slots.map((slot) => fit(slot.value, slot.allocation, linkCollection));
     }
 
     if (value !== null && typeof value === "object") {
+      // An object cannot be shown with only a fragment of a required identity.
+      if (!root && requiredSize(value) > budget) return Object.create(null) as JsonValue;
       const entries = Object.entries(value);
-      // Prefer identifiers and the search/fetch containers when even the
-      // structural overhead does not fit. Restore the original field order in
-      // the result; no provider data is re-ranked.
-      const candidates = entries.map(([key, child], index) => ({ key, child, index }));
+      // Reserve required identifiers first, but restore the original field
+      // order in the result; no provider data or array entry is re-ranked.
+      const candidates = entries.map(([key, child], index) => ({
+        key, child, index, required: requiredPropertySize(key, child) !== undefined,
+      }));
       candidates.sort((a, b) =>
-        (KEY_PRIORITY.get(a.key) ?? IMPORTANT_KEYS.length) - (KEY_PRIORITY.get(b.key) ?? IMPORTANT_KEYS.length)
+        Number(b.required) - Number(a.required)
+        || (KEY_PRIORITY.get(a.key) ?? IMPORTANT_KEYS.length) - (KEY_PRIORITY.get(b.key) ?? IMPORTANT_KEYS.length)
         || a.index - b.index,
       );
       const slots: Slot[] = [];
       let fixed = 2; // braces, keys, colons and commas
       let minimums = 0;
       for (const { key, child, index } of candidates) {
-        const minimum = minimumSize(child);
+        const minimum = minimumSize(child, key);
         const punctuation = (slots.length > 0 ? 1 : 0) + charCount(JSON.stringify(key)) + 1;
-        if (fixed + punctuation + minimums + minimum > budget) {
-          recordChange(tracker, propertyPath(path, key));
-          continue;
-        }
+        if (fixed + punctuation + minimums + minimum > budget) continue;
         fixed += punctuation;
         minimums += minimum;
         slots.push({ index, key, value: child, minimum, full: sizeOf(child), allocation: minimum });
@@ -206,7 +225,7 @@ function createFitter(tracker: ChangeTracker) {
       const result: { [key: string]: JsonValue } = Object.create(null);
       for (const slot of slots) {
         const key = slot.key!;
-        result[key] = fit(slot.value, slot.allocation, propertyPath(path, key));
+        result[key] = fit(slot.value, slot.allocation, isLinkCollectionKey(key));
       }
       return result;
     }
@@ -218,17 +237,11 @@ function createFitter(tracker: ChangeTracker) {
   return fit;
 }
 
-function minimalTruncatedJson(limit: number): string {
-  for (const text of ['{"_truncation":{"truncated":true}}', '{"_truncated":true}', "{}", "0"]) {
-    if (text.length <= limit) return text;
-  }
-  throw new RangeError("The JSON output limit must be at least one character");
-}
-
 /**
  * Preserve ordinary output exactly. If compact JSON still exceeds the limit,
- * fit its fields and array entries independently and report affected paths.
- * The returned text is valid JSON and never exceeds `maxChars` code points.
+ * fit its fields and array entries independently and append one marker line.
+ * The JSON portion stays valid and the entire text fits within `maxChars` code
+ * points. Tiny limits may only fit the marker or a minimal JSON value.
  */
 export function formatJsonWithinLimit(
   output: object,
@@ -239,61 +252,26 @@ export function formatJsonWithinLimit(
   }
   const limit = Math.floor(maxChars);
   const pretty = JSON.stringify(output, null, 2);
-  const originalChars = charCount(pretty);
-  if (originalChars <= limit) return { text: pretty, truncated: false };
+  if (charCount(pretty) <= limit) return { text: pretty, truncated: false };
 
   // Work from the already serialized value, so JSON's handling of undefined,
   // dates and toJSON is identical even if an input object is not plain data.
-  const parsed = JSON.parse(pretty) as { [key: string]: JsonValue };
+  const parsed = JSON.parse(pretty) as JsonValue;
   const compact = JSON.stringify(parsed);
   if (charCount(compact) <= limit) return { text: compact, truncated: false };
 
-  const info: TruncationInfo = {
-    truncated: true,
-    originalChars,
-    affectedPaths: [],
-    moreAffectedPaths: false,
-  };
-  // Account for the metadata entry and a comma joining it to the root object.
-  const overhead = charCount(JSON.stringify({ _truncation: info })) - 2 + 1;
-  if (limit - overhead < 2) return { text: minimalTruncatedJson(limit), truncated: true };
-
-  const build = (reservedPaths: number) => {
-    const tracker: ChangeTracker = { paths: [], seen: new Set(), more: false };
-    const fit = createFitter(tracker);
-    const fitted = fit(parsed, limit - overhead - reservedPaths, "$") as { [key: string]: JsonValue };
-    return { fitted, tracker };
-  };
-
-  let result = build(0);
-  // Reserve just enough room for the first pass's affected paths, capped so
-  // reporting never consumes a disproportionate share of the result budget.
-  const desiredPathSpace = Math.min(
-    MAX_PATH_BUDGET,
-    Math.max(64, Math.floor(limit * 0.05)),
-    charCount(JSON.stringify(result.tracker.paths)) - 2,
-  );
-  if (desiredPathSpace > 0 && limit - overhead - desiredPathSpace >= 2) {
-    result = build(desiredPathSpace);
+  // Below 14 characters there is not enough room for both an empty JSON object
+  // and the marker on a new line. Prefer a complete marker whenever it fits.
+  if (limit < TRUNCATION_MARKER.length + 3) {
+    const text = limit >= TRUNCATION_MARKER.length ? TRUNCATION_MARKER : limit >= 2 ? "{}" : "0";
+    return { text, truncated: true };
   }
 
-  const combined: { [key: string]: unknown } = Object.create(null);
-  combined._truncation = info;
-  for (const [key, value] of Object.entries(result.fitted)) {
-    if (key !== "_truncation") combined[key] = value;
-  }
-
-  let remaining = limit - charCount(JSON.stringify(combined));
-  for (const path of result.tracker.paths) {
-    const cost = charCount(JSON.stringify(path)) + (info.affectedPaths.length > 0 ? 1 : 0);
-    if (cost > remaining) {
-      info.moreAffectedPaths = true;
-      break;
-    }
-    info.affectedPaths.push(path);
-    remaining -= cost;
-  }
-  if (result.tracker.more) info.moreAffectedPaths = true;
-
-  return { text: JSON.stringify(combined), truncated: true };
+  const budget = limit - TRUNCATION_MARKER.length - 1; // newline + marker
+  const fit = createFitter();
+  // A toJSON method can return a scalar that cannot be shortened to fit.
+  const fitted = parsed === null || typeof parsed === "boolean" || typeof parsed === "number"
+    ? {}
+    : fit(parsed, budget, false, true);
+  return { text: `${JSON.stringify(fitted)}\n${TRUNCATION_MARKER}`, truncated: true };
 }

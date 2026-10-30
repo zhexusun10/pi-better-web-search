@@ -161,15 +161,21 @@ The result is a JSON wrapper:
 Fields inside `search` and `fetched[].data` are provider data. The extension does
 not deduplicate, normalize, filter, re-rank, summarize, insert citation markers,
 or append source sections. The final guard keeps successful model-facing output
-within 64,000 Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).
+within 96,000 Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).
 It preserves ordinary formatted JSON, or uses compact JSON if that alone fits.
-Otherwise it budgets sibling fields and array entries independently, preferring
-identifiers when space is tight. Strings can be shortened, and fields or trailing
-array entries omitted; the output remains valid JSON. `_truncation` records the
-original indented JSON length and affected paths, while `details.truncated` marks
-actual data loss. For very small limits below 19 characters, only the details
-flag fits. This is a character guard, not a token or model-context limit; it does
-not provide pagination or retain the complete provider payload for later use.
+Otherwise it budgets sibling fields and array entries independently. Recognized
+link and identity fields stay whole; entries or branches that cannot fit them
+are omitted instead, without re-ranking. Standalone URLs and link/citation array
+entries remain intact, and a recognizable URL crossing a text cut is omitted
+rather than partially emitted. Unknown relative links or bare domains may not be
+identifiable. Other strings can be shortened, and fields or trailing array entries
+omitted. The JSON portion
+stays valid, followed by one `[truncated]` line; the complete text is therefore
+not valid JSON. No truncation metadata is injected into the model-facing JSON,
+while `details.truncated` marks actual data loss. When truncation is needed with a limit of 11–13 characters,
+only the marker is returned; below 11, a minimal JSON value is returned instead.
+This is a character guard, not a token or model-context limit; it does not
+provide pagination or retain the complete provider payload for later use.
 
 ## Provider adapter contract
 

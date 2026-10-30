@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.7
+
+- Keep recognized URL/URI/link and title/name/ID fields intact when truncating;
+  omit entries that cannot fit rather than returning partial links. Preserve
+  provider order and drop incomplete URL tokens at text boundaries.
+- Raise the default model-facing output limit from 64,000 to 96,000 Unicode
+  code points; the environment override remains available.
+- Replace model-facing truncation metadata and per-string markers with a single
+  `[truncated]` line at the end of oversized results. Keep the existing fair
+  allocation across search results and fetched pages.
+
 ## 0.1.6
 
 - Keep oversized results as valid JSON, sharing the character budget across

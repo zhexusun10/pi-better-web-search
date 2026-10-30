@@ -217,18 +217,23 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
 - 不解析 redirect，不派生 sources。
 - 未超出大小限制时，provider 的未知字段也会保留。
 
-最终大小保护默认限制成功结果不超过 **64,000 个 Unicode code point**。
+最终大小保护默认限制成功结果不超过 **96,000 个 Unicode code point**。
 未超限时保留原始字段及格式；如果只是缩进导致超限，会先压缩 JSON，
 不丢失数据，也不标记为截断。
 
-压缩后仍超限时，按字段和数组条目分配预算，未用完的额度会重新分配；
-尽量保留 URL、标题和错误等标识信息。必要时会缩短字符串或省略字段、
-数组末尾的条目，但返回值始终是合法 JSON。空间允许时，缩短的字符串以
-`…[truncated]` 结尾；模型可见的 `_truncation` 对象包含 `truncated`、
-`originalChars`（原始缩进 JSON 的字符数）和 `affectedPaths`。
-`moreAffectedPaths` 表示路径列表不完整，数组路径也可能表示部分条目被省略。
-预算极小时无法保证保留所有 URL 或字段。确实丢失数据时，
-`details.truncated` 也会设为 `true`。
+压缩后仍超限时，按字段和数组条目分配预算，未用完的额度会重新分配。
+已识别的链接及标识字段（包括 `url`、`uri`、`href`、`link`、`title`、
+`name`、`id` 和常见别名）保持完整；放不下时省略对应条目或分支，而不是
+返回半截值。独立 URL 和链接、引用数组中的条目也保持完整；正文截断点
+若落在可识别的 URL（如 `https://`、`mailto:` 或 `www.`）中间，会省略该
+未完整显示的 URL。未知字段中的相对链接或裸域名无法保证都能识别。
+其他长字符串可能被缩短，字段或数组末尾的条目可能被省略；
+不对结果重排或总结。
+
+JSON 部分仍然合法，末尾仅追加一行 `[truncated]`。不会向模型可见的 JSON
+中添加截断元数据，也不会逐个标记缩短的字符串。由于末尾追加了这一行，
+整个文本不再是合法 JSON。确实丢失数据时，`details.truncated` 也会设为
+`true`。
 
 可在**启动 pi 之前**通过环境变量调整：
 
@@ -238,9 +243,10 @@ export PI_BETTER_WEB_SEARCH_MAX_CHARS=100000
 
 PowerShell 使用 `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`。
 上限是 code point，**不是 token**，不会根据当前模型的上下文窗口自动调整。
-极小上限（少于 19 字符）无法在模型可见内容中容纳截断标记，此时仍返回
-合法 JSON，并在 `details.truncated` 中报告。当前没有续读或分页缓存；
-需要更多内容时可单独重新抓取 URL 或提高上限。
+标记也计入上限。需要截断且上限为 11–13 字符时，只返回 `[truncated]`；
+少于 11 字符时放不下标记，只返回一个最小 JSON 值。这两种情况仍会通过
+`details.truncated` 报告截断。当前没有续读或分页缓存；需要更多内容时可
+单独重新抓取 URL 或提高上限。
 
 ## 暴露规则
 
@@ -323,7 +329,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-0.1.0.tgz`。不会自动发布。
+`dist/pi-better-web-search-0.1.7.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。
