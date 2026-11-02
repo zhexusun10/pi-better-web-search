@@ -430,6 +430,7 @@ test("only URLs requested and none fetched returns an error", async () => {
         assert.equal(result.isError, true);
         assert.match(result.content[0].text, /URL fetch failed/);
         assert.match(result.content[0].text, /blocked/);
+        assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-chat:/);
       },
     );
   });

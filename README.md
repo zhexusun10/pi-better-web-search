@@ -81,7 +81,9 @@ The runtime schema is logically:
 
 - `query` searches the web. Search operators such as `site:`, quotes, `AND`,
   `OR`, and `-term` are passed through unchanged (only outer whitespace is
-  trimmed).
+  trimmed). If a provider enforces a shorter query limit, its adapter shortens
+  only the provider-bound copy at a word boundary; the original query stays in
+  the output.
 - `urls` analyzes the listed pages. URLs can be used **alone** or together with
   `query`. A query plus URLs performs a search and then analyzes the URLs.
 - At most **20** URLs may be supplied.
@@ -137,36 +139,48 @@ support per family.
 For a search:
 
 1. The current conversation model is tried first when its provider family
-   supports web search.
+   supports web search and neither the provider nor that model is cooling down
+   after a recent failure.
 2. A remembered successful provider from the preference cache is tried next
    when the cache fingerprint is current.
 3. The remaining provider families are tried in this fixed order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
-4. Within a family, models are ordered by capability tier first (cheapest
-   available tier wins) and then by version number, newest first. OpenAI tiers
-   are `luna → sol → astra` and Claude tiers are
-   `haiku → sonnet → opus → fable`; other families have no named tiers and are
-   ordered purely by version. Ties are deterministic.
-5. Alternate models from other providers are tried round-robin, so a provider
-   that rejects one specific model can still serve a sibling. Only the current
-   model's provider id is excluded; a different provider id in the same family
-   is still tried. A provider-wide failure (auth, balance, network, timeout,
-   malformed request) skips the rest of that provider; a model-specific
-   failure keeps trying sibling models.
+4. Within a family, brand order comes first: DeepSeek models, then OpenAI,
+   then Claude, then Gemini/Gemma, then other gateway brands. For brands
+   without named tiers, variants order `flash → base → pro`; within a variant,
+   newer versions come first. GPT and Claude keep version-first ordering, with
+   their capability tier as a tiebreaker: OpenAI tiers are
+   `luna → terra → sol → astra` and Claude tiers are
+   `haiku → sonnet → opus → fable`. Ties are deterministic.
+5. Alternate models from every provider are tried round-robin, so a provider
+   that rejects one specific model can still serve a sibling, including a
+   newer sibling from the same provider id. A provider-wide failure (auth,
+   balance, network, timeout, malformed request) skips the rest of that
+   provider; a model-specific failure keeps trying sibling models.
 
 URL fetching uses the same idea, but considers only providers that implement
 URL fetching.
 
-The current model is always tried first when it supports search. The cache does
-not replace a supported current model; it mainly lets an unsupported current
-model use a remembered compatible provider immediately on later calls.
+The current model is normally tried first when it supports search, unless its
+provider or model is in a failure cooldown. The cache does not replace a
+supported current model; it mainly lets an unsupported current model use a
+remembered compatible provider immediately on later calls.
 
 If a provider errors, the extension records the attempt and moves to the next
 interface. Aborts stop immediately. Each attempt has a timeout (60 seconds by
 default, configurable with `PI_BETTER_WEB_SEARCH_TIMEOUT_MS`). If every attempt
-fails, the tool returns an error whose message lists the attempted
-provider/model pairs and their errors. For a URL-only call, the error also
-reports the per-URL failures.
+fails, the tool returns an error whose message contains the provider errors.
+Provider/model routing remains in `details.attempts`. For a URL-only call, the
+error also reports the per-URL failures.
+
+Provider-wide failures (auth, balance, network, timeout, malformed request) and
+model-specific failures are remembered for the life of the extension process.
+On later calls the failed provider or model is moved behind healthy candidates
+for search and fetch independently. The cooldown starts at 60 seconds, doubles
+on consecutive failures, and is capped at 10 minutes; a successful call clears
+it. Set `PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS=0` to disable this behavior.
+This does not prevent several calls already in flight from trying the same
+candidate at the same time.
 
 ### Cache fingerprint invalidation
 
@@ -316,8 +330,10 @@ Authorization: Bearer <DeepSeek API Key>
 Content-Type: application/json
 ```
 
-Search uses `query`, `count: 10`, and `need_content: true`. The raw `results`
-array is returned unchanged, including `rerank_score`, `title`, `url`,
+Search uses `query`, `count: 10`, and `need_content: true`. DeepSeek limits
+`query` to 128 Unicode characters, so longer queries are shortened at a word
+boundary for the request only. The raw `results` array is returned unchanged,
+including `rerank_score`, `title`, `url`,
 `snippet`, `summary`, `content`, `site_name`, `site_icon`, `date`, `authority`,
 and any unknown fields.
 

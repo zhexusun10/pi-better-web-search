@@ -18,6 +18,13 @@ import {
   type WebSearchDetails,
   type WebSearchOutput,
 } from "./format.ts";
+import {
+  clearModelFailure,
+  clearProviderFailure,
+  prioritizeCandidates,
+  recordModelFailure,
+  recordProviderFailure,
+} from "./health.ts";
 import { MAX_URLS } from "./schema.ts";
 
 export const DEFAULT_ATTEMPT_TIMEOUT_MS = 60_000;
@@ -204,11 +211,14 @@ function resultCount(result: { results?: unknown }): number | undefined {
   return Array.isArray(result.results) ? result.results.length : undefined;
 }
 
-function attemptSummary(attempts: WebSearchAttempt[], phase: "search" | "fetch"): string {
-  return attempts
-    .filter((attempt) => attempt.phase === phase)
-    .map((attempt) => `${attempt.provider}/${attempt.model}: ${attempt.message}`)
-    .join("; ");
+function attemptMessages(attempts: WebSearchAttempt[], phase: "search" | "fetch"): string {
+  const messages = new Set<string>();
+  for (const attempt of attempts) {
+    if (attempt.phase !== phase) continue;
+    const message = attempt.message.trim();
+    if (message) messages.add(message);
+  }
+  return [...messages].join("; ");
 }
 
 function nextCache(
@@ -254,7 +264,7 @@ async function runSearch(
   // whole attempt budget on one interface.
   const failedProviders = new Set<string>();
 
-  for (const candidate of candidates) {
+  for (const candidate of prioritizeCandidates("search", candidates)) {
     if (externalSignal?.aborted) throw abortReason(externalSignal);
     if (failedProviders.has(candidate.model.provider)) continue;
 
@@ -268,6 +278,8 @@ async function runSearch(
         signal,
       );
       if (externalSignal?.aborted) throw abortReason(externalSignal);
+      clearProviderFailure("search", candidate.model.provider);
+      clearModelFailure("search", candidate.model.provider, candidate.model.id);
       return { candidate, result: result ?? {} };
     } catch (error) {
       if (externalSignal?.aborted) throw abortReason(externalSignal);
@@ -278,7 +290,17 @@ async function runSearch(
         model: candidate.model.id,
         message,
       });
-      if (isProviderWideFailure(message)) failedProviders.add(candidate.model.provider);
+      if (isProviderWideFailure(message)) {
+        failedProviders.add(candidate.model.provider);
+        recordProviderFailure("search", candidate.model.provider, message);
+      } else {
+        recordModelFailure(
+          "search",
+          candidate.model.provider,
+          candidate.model.id,
+          message,
+        );
+      }
     }
   }
 
@@ -348,7 +370,7 @@ async function runFetch(
   // from the same provider id.
   const failedProviders = new Set<string>();
 
-  for (const candidate of candidates) {
+  for (const candidate of prioritizeCandidates("fetch", candidates)) {
     if (remaining.length === 0) break;
     if (externalSignal?.aborted) throw abortReason(externalSignal);
     if (failedProviders.has(candidate.model.provider)) continue;
@@ -378,6 +400,8 @@ async function runFetch(
 
       const assigned = assignFetchEntries(states, remaining, result?.entries ?? [], candidate);
       remaining = assigned.remaining;
+      clearProviderFailure("fetch", candidate.model.provider);
+      clearModelFailure("fetch", candidate.model.provider, candidate.model.id);
 
       if (assigned.successful > 0) {
         // Replace only on a strictly larger success count, so the first
@@ -396,7 +420,17 @@ async function runFetch(
         model: candidate.model.id,
         message,
       });
-      if (isProviderWideFailure(message)) failedProviders.add(candidate.model.provider);
+      if (isProviderWideFailure(message)) {
+        failedProviders.add(candidate.model.provider);
+        recordProviderFailure("fetch", candidate.model.provider, message);
+      } else {
+        recordModelFailure(
+          "fetch",
+          candidate.model.provider,
+          candidate.model.id,
+          message,
+        );
+      }
       for (const index of remaining) {
         states[index].error = message;
       }
@@ -463,7 +497,8 @@ export async function runWebSearch(
 
     searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
     if (!searchSuccess) {
-      const message = "This tool is not available in this conversation.";
+      const providerErrors = attemptMessages(attempts, "search");
+      const message = providerErrors || "This tool is not available in this conversation.";
       return formatError(message, { attempts, error: message });
     }
   }
@@ -494,7 +529,7 @@ export async function runWebSearch(
     fetchSuccessful = fetched.successful;
 
     if (!searchRequested && fetchSuccessful === 0) {
-      const failure = attemptSummary(attempts, "fetch");
+      const failure = attemptMessages(attempts, "fetch");
       const urlFailure = [
         ...states.map((state) => `${state.url}: ${state.error || "fetch failed"}`),
         ...urlErrors.map((entry) => `${entry.url}: ${entry.error}`),

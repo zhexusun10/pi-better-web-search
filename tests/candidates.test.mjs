@@ -133,7 +133,7 @@ test("cached refs resolve to another available model from the same provider", as
   });
 });
 
-test("a cached model from the current provider is not retried", async () => {
+test("a cached model from the current provider is not promoted, but remains an alternate", async () => {
   const current = deepseekModel({ id: "deepseek-chat" });
   const replacement = deepseekModel({ id: "deepseek-reasoner" });
   const fallback = openaiResponsesModel();
@@ -149,7 +149,7 @@ test("a cached model from the current provider is not retried", async () => {
     const resolution = resolveResolutionContext(ctx);
     assert.deepEqual(
       getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1"],
+      ["deepseek/deepseek-chat", "openai/gpt-5.1", "deepseek/deepseek-reasoner"],
     );
   });
 });
@@ -180,22 +180,82 @@ test("higher version numbers rank first within the same tier", async () => {
   });
 });
 
-test("OpenAI tiers rank luna before sol before astra", async () => {
+test("OpenAI tiers rank luna before terra before sol before astra", async () => {
   const astra = openaiResponsesModel({ id: "gpt-6.1-astra" });
   const sol = openaiResponsesModel({ id: "gpt-6.1-sol" });
+  const terra = openaiResponsesModel({ id: "gpt-6.1-terra" });
   const luna = openaiResponsesModel({ id: "gpt-6.1-luna" });
-  const ctx = ctxFor(unsupportedLocalModel(), [astra, sol, luna]);
+  const ctx = ctxFor(unsupportedLocalModel(), [astra, sol, terra, luna]);
 
   await withResolution(ctx, undefined, (resolution) => {
     assert.deepEqual(
       getSearchCandidates(resolution).map(candidateKey),
-      ["openai/gpt-6.1-luna", "openai/gpt-6.1-sol", "openai/gpt-6.1-astra"],
+      [
+        "openai/gpt-6.1-luna",
+        "openai/gpt-6.1-terra",
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6.1-astra",
+      ],
+    );
+  });
+});
+
+test("a gateway orders DeepSeek models before OpenAI models", async () => {
+  const luna = openaiResponsesModel({ id: "gpt-5.6-luna", provider: "opencode-go" });
+  const terra = openaiResponsesModel({ id: "gpt-6.1-terra", provider: "opencode-go" });
+  const deepseekPro = openaiResponsesModel({ id: "deepseek-v4-pro", provider: "opencode-go" });
+  const deepseekFlash = openaiResponsesModel({ id: "deepseek-v4-flash", provider: "opencode-go" });
+  const ctx = ctxFor(unsupportedLocalModel(), [luna, terra, deepseekPro, deepseekFlash]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      [
+        "opencode-go/deepseek-v4-flash",
+        "opencode-go/deepseek-v4-pro",
+        "opencode-go/gpt-6.1-terra",
+        "opencode-go/gpt-5.6-luna",
+      ],
+    );
+  });
+});
+
+test("non-tiered brands put flash before base before pro", async () => {
+  const flash = googleModel({ id: "gemini-3.8-flash" });
+  const base = googleModel({ id: "gemini-3.8" });
+  const pro = googleModel({ id: "gemini-3.8-pro" });
+  const ctx = ctxFor(unsupportedLocalModel(), [pro, base, flash]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      ["google/gemini-3.8-flash", "google/gemini-3.8", "google/gemini-3.8-pro"],
+    );
+  });
+});
+
+test("a newer model outranks an older model even across capability tiers", async () => {
+  const newerTerra = openaiResponsesModel({ id: "gpt-6.1-terra" });
+  const newerSol = openaiResponsesModel({ id: "gpt-6.1-sol" });
+  const olderLuna = openaiResponsesModel({ id: "gpt-6-luna" });
+  const oldestLuna = openaiResponsesModel({ id: "gpt-5.6-luna" });
+  const ctx = ctxFor(unsupportedLocalModel(), [oldestLuna, olderLuna, newerSol, newerTerra]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      [
+        "openai/gpt-6.1-terra",
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6-luna",
+        "openai/gpt-5.6-luna",
+      ],
     );
   });
 });
 
 test("Claude tiers rank haiku before sonnet before opus before fable", async () => {
-  const fable = anthropicModel({ id: "claude-fable-6-0" });
+  const fable = anthropicModel({ id: "claude-fable-5-5" });
   const opus = anthropicModel({ id: "claude-opus-5-5" });
   const sonnet = anthropicModel({ id: "claude-sonnet-5-5" });
   const haiku = anthropicModel({ id: "claude-haiku-5-5" });
@@ -208,7 +268,7 @@ test("Claude tiers rank haiku before sonnet before opus before fable", async () 
         "anthropic/claude-haiku-5-5",
         "anthropic/claude-sonnet-5-5",
         "anthropic/claude-opus-5-5",
-        "anthropic/claude-fable-6-0",
+        "anthropic/claude-fable-5-5",
       ],
     );
   });
@@ -229,7 +289,7 @@ test("a family contributes alternate models only after every family primary", as
   });
 });
 
-test("the current model's provider id is not retried with a different model", async () => {
+test("a model-specific failure can retry the current provider with a sibling model", async () => {
   const current = deepseekModel({ id: "deepseek-chat" });
   const sibling = deepseekModel({ id: "deepseek-reasoner" });
   const openai = openaiResponsesModel();
@@ -238,7 +298,7 @@ test("the current model's provider id is not retried with a different model", as
   await withResolution(ctx, undefined, (resolution) => {
     assert.deepEqual(
       getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1"],
+      ["deepseek/deepseek-chat", "openai/gpt-5.1", "deepseek/deepseek-reasoner"],
     );
   });
 });
@@ -274,14 +334,14 @@ test("url-incapable candidates are filtered from fetch ordering", async () => {
 test("search and fetch candidate lists are deterministic and enforce caps", async () => {
   const current = unsupportedLocalModel();
   const models = Array.from({ length: 20 }, (_, index) =>
-    openaiResponsesModel({ id: `gpt-5-${index}`, provider: `openai-${index}` }),
+    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `openai-${index}` }),
   ).reverse();
 
   await withResolution(ctxFor(current, models), undefined, (resolution) => {
     const search = getSearchCandidates(resolution);
     assert.equal(search.length, SEARCH_ATTEMPT_CAP);
-    // Newer version numbers rank first, so `gpt-5-19` beats `gpt-5-0`.
-    assert.equal(candidateKey(search[0]), "openai-19/gpt-5-19");
+    // Newer version numbers rank first, so `gpt-5.19` beats `gpt-5.0`.
+    assert.equal(candidateKey(search[0]), "openai-19/gpt-5.19");
     assert.equal(new Set(search.map((entry) => entry.model.provider)).size, search.length);
   });
 
@@ -305,6 +365,26 @@ test("search and fetch candidate lists are deterministic and enforce caps", asyn
     assert.equal(
       new Set(fetchCandidates.map((entry) => entry.model.provider)).size,
       fetchCandidates.length,
+    );
+  });
+});
+
+test("Google research-preview dates do not look like newer model versions", async () => {
+  const flash = googleModel({ id: "gemini-3.8-flash" });
+  const base = googleModel({ id: "gemini-3.8" });
+  const pro = googleModel({ id: "gemini-3.8-pro" });
+  const research = googleModel({ id: "deep-research-max-preview-04-2026" });
+  const ctx = ctxFor(unsupportedLocalModel(), [research, pro, base, flash]);
+
+  await withResolution(ctx, undefined, (resolution) => {
+    assert.deepEqual(
+      getSearchCandidates(resolution).map(candidateKey),
+      [
+        "google/gemini-3.8-flash",
+        "google/gemini-3.8",
+        "google/gemini-3.8-pro",
+        "google/deep-research-max-preview-04-2026",
+      ],
     );
   });
 });

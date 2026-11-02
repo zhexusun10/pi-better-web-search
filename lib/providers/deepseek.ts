@@ -69,6 +69,26 @@ function validateQuery(query: string): string | undefined {
   return undefined;
 }
 
+/**
+ * DeepSeek rejects queries longer than 128 Unicode characters. Agent-generated
+ * search queries routinely exceed that limit, especially when several parallel
+ * calls are issued. Shorten only the provider-bound copy, preferring a word
+ * boundary so the tail is not cut in the middle of a term. The original query
+ * remains in the model-facing output.
+ */
+export function clampDeepSeekQuery(query: string): string {
+  const characters = Array.from(query);
+  if (characters.length <= DEEPSEEK_MAX_QUERY_LENGTH) return query;
+
+  const head = characters.slice(0, DEEPSEEK_MAX_QUERY_LENGTH).join("");
+  const boundary = head.search(/\s+\S*$/u);
+  // Keep the hard cut when word-trimming would discard too much of the query.
+  if (boundary >= Math.floor(DEEPSEEK_MAX_QUERY_LENGTH / 2)) {
+    return head.slice(0, boundary).trimEnd();
+  }
+  return head.trimEnd();
+}
+
 function validateFetchUrl(url: string): string | undefined {
   if (typeof url !== "string" || !url) return "Invalid URL: a non-empty string is required";
   if (url.length > DEEPSEEK_MAX_URL_LENGTH) {
@@ -147,7 +167,8 @@ export const deepseekAdapter: ProviderAdapter = {
   ): Promise<ProviderSearchResult> {
     checkAbort(signal);
 
-    const queryError = validateQuery(query);
+    const effectiveQuery = clampDeepSeekQuery(query);
+    const queryError = validateQuery(effectiveQuery);
     if (queryError) throw new Error(queryError);
 
     const target = await resolveDeepSeekTarget(ctx, model);
@@ -157,7 +178,7 @@ export const deepseekAdapter: ProviderAdapter = {
       method: "POST",
       headers: target.headers,
       body: JSON.stringify({
-        query,
+        query: effectiveQuery,
         count: DEEPSEEK_SEARCH_COUNT,
         need_content: DEEPSEEK_NEED_CONTENT,
       }),

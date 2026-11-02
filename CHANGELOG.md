@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.1.8
+
+- Shorten overlong DeepSeek search queries at a word boundary before sending
+  them to the provider. DeepSeek rejects queries above 128 Unicode characters,
+  so concurrent agent search batches with long queries previously failed with
+  the generic unavailable error while shorter sibling calls succeeded. The
+  original query remains in the model-facing output.
+- Return the provider errors when every search attempt fails, instead of
+  replacing them with the generic unavailable message. For example, an OpenAI
+  timeout and a DeepSeek validation error are now both visible to the model.
+- Remember provider-wide and model-specific failures per search/fetch phase and
+  move the failed provider or model behind healthy candidates on later calls.
+  The cooldown is exponential (60s to 10 minutes) and is cleared by a
+  successful call. Configure with `PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS`;
+  set it to `0` to disable.
+- Surface provider error text without prepending provider/model labels to the
+  model-facing message.
+- Rank GPT and Claude models by version number first, newest first; capability
+  tier is now only a tiebreaker for the same version. Add the
+  OpenAI `terra` tier between `luna` and `sol`. This prevents an older
+  `gpt-5.6-luna` from outranking newer `gpt-6.1-sol`/`gpt-6.1-terra` models.
+  `gpt-6-luna` now outranks `gpt-5.6-luna`.
+- Order model brands inside a provider family as DeepSeek, OpenAI, Claude,
+  Gemini/Gemma, then other gateway brands. For non-tiered brands, order model
+  variants as `flash → base → pro` before comparing versions.
+- Alternate fallback now includes sibling models from the current model's
+  provider id. A provider-wide failure still skips that provider, while a
+  model-specific failure can use a newer sibling instead of jumping to another
+  provider.
+
 ## 0.1.7
 
 - Keep recognized URL/URI/link and title/name/ID fields intact when truncating;

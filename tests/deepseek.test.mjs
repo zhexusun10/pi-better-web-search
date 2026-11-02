@@ -6,6 +6,7 @@ import {
   DEEPSEEK_MAX_QUERY_LENGTH,
   DEEPSEEK_NEED_CONTENT,
   DEEPSEEK_SEARCH_COUNT,
+  clampDeepSeekQuery,
   deepseekAdapter,
   resolveDeepSeekToolUrl,
 } from "../lib/providers/deepseek.ts";
@@ -106,7 +107,7 @@ test("DeepSeek search preserves empty and missing result arrays", async (t) => {
   });
 });
 
-test("DeepSeek rejects an invalid query before fetching", async (t) => {
+test("DeepSeek rejects an empty query before fetching", async (t) => {
   const fetch = t.mock.method(globalThis, "fetch", async () => assert.fail("must not fetch"));
   const ctx = createMockCtx({ model: deepseekModel() });
 
@@ -118,11 +119,33 @@ test("DeepSeek rejects an invalid query before fetching", async (t) => {
     () => deepseekAdapter.search(ctx, ctx.model, "   \t\n ", undefined),
     /non-whitespace/,
   );
-  await assert.rejects(
-    () => deepseekAdapter.search(ctx, ctx.model, "x".repeat(DEEPSEEK_MAX_QUERY_LENGTH + 1), undefined),
-    new RegExp(`1-${DEEPSEEK_MAX_QUERY_LENGTH}`),
-  );
   assert.equal(fetch.mock.callCount(), 0);
+});
+
+test("DeepSeek shortens overlong queries at a word boundary before fetching", async (t) => {
+  const prefix = "site:example.com ";
+  const longQuery = `${prefix}${"alpha ".repeat(30)}omega`;
+  const requests = [];
+  const ctx = createMockCtx({ model: deepseekModel(), auth: { ok: true, apiKey: "test-key" } });
+
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return jsonResponse({ results: [] });
+  });
+
+  await deepseekAdapter.search(ctx, ctx.model, longQuery, undefined);
+
+  assert.equal(requests.length, 1);
+  const sent = requests[0].query;
+  assert.ok(Array.from(sent).length <= DEEPSEEK_MAX_QUERY_LENGTH);
+  assert.ok(sent.startsWith(prefix));
+  assert.equal(sent.endsWith("alpha"), true);
+  assert.equal(sent, sent.trimEnd());
+  assert.equal(clampDeepSeekQuery("short query"), "short query");
+  assert.equal(
+    clampDeepSeekQuery("x".repeat(DEEPSEEK_MAX_QUERY_LENGTH)),
+    "x".repeat(DEEPSEEK_MAX_QUERY_LENGTH),
+  );
 });
 
 test("DeepSeek fetch posts one request per URL and keeps raw fetch payloads", async (t) => {

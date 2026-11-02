@@ -185,7 +185,7 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
   });
 });
 
-test("supported current model is tried first every time; cache supplies the fallback", async (t) => {
+test("a failed current model is moved behind the cached fallback on later calls", async (t) => {
   await withTempCache(async () => {
     const openai = openaiResponsesModel();
     const deepseek = deepseekModel();
@@ -225,10 +225,10 @@ test("supported current model is tried first every time; cache supplies the fall
     order.length = 0;
     const second = await runWebSearch({ query: "current model policy again" }, ctx);
     assert.equal(second.isError, undefined);
-    // The supported current model stays first. The remembered DeepSeek
-    // fallback follows it instead of replacing it.
-    assert.deepEqual(order, ["openai", "deepseek"]);
-    assert.equal(second.details.attempts.length, 1);
+    // The failed current model is cooling down, so the remembered DeepSeek
+    // fallback runs first and no OpenAI attempt is made.
+    assert.deepEqual(order, ["deepseek"]);
+    assert.equal(second.details.attempts.length, 0);
     assert.equal(JSON.parse(second.content[0].text).search.results[0].title, "DeepSeek fallback");
     assert.deepEqual(readCache().search, {
       provider: "deepseek",
@@ -282,6 +282,93 @@ test("provider-set changes invalidate the old cache and select the new priority 
   });
 });
 
+test("concurrent long-query searches all succeed through DeepSeek", async (t) => {
+  await withTempCache(async () => {
+    const deepseek = deepseekModel();
+    const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek] });
+    const queries = [
+      "cryptocurrency momentum trend following transaction costs out of sample Liu Tsyvinski 2021 cryptocurrency risk return time series momentum",
+      "cryptocurrency time series momentum trading strategies turnover transaction costs out of sample trend following moving average breakout academic rese",
+      "cryptocurrency short term reversal intraday momentum transaction costs liquidity limits academic research daily strategy",
+    ];
+    const sentQueries = [];
+    mockFetch(t, async ({ url, body }) => {
+      if (url !== DEEPSEEK_SEARCH_URL) return unexpected(url);
+      sentQueries.push(body.query);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return jsonResponse({ results: [{ title: `result-${sentQueries.length}` }] });
+    });
+
+    const results = await Promise.all(queries.map((query) => runWebSearch({ query }, ctx)));
+
+    assert.equal(results.length, queries.length);
+    for (const [index, result] of results.entries()) {
+      assert.equal(result.isError, undefined);
+      assert.equal(JSON.parse(result.content[0].text).query, queries[index]);
+    }
+    assert.equal(sentQueries.length, queries.length);
+    assert.ok(sentQueries.every((query) => Array.from(query).length <= 128));
+  });
+});
+
+test("a provider that failed is moved behind healthy providers on later calls", async (t) => {
+  await withTempCache(async () => {
+    const openai = openaiResponsesModel();
+    const deepseek = deepseekModel();
+    const ctx = createMockCtx({ model: openai, availableModels: [openai, deepseek] });
+    const calls = [];
+    mockFetch(t, ({ url }) => {
+      calls.push(url);
+      if (url === OPENAI_RESPONSES_URL) {
+        return jsonResponse({ error: { message: "openai timed out" } }, 500, "Internal Server Error");
+      }
+      if (url === DEEPSEEK_SEARCH_URL) {
+        return jsonResponse({ results: [{ title: "DeepSeek after OpenAI failure" }] });
+      }
+      return unexpected(url);
+    });
+
+    const first = await runWebSearch({ query: "first search" }, ctx);
+    assert.equal(first.isError, undefined);
+    assert.deepEqual(calls, [OPENAI_RESPONSES_URL, DEEPSEEK_SEARCH_URL]);
+
+    calls.length = 0;
+    const second = await runWebSearch({ query: "second search" }, ctx);
+    assert.equal(second.isError, undefined);
+    assert.deepEqual(calls, [DEEPSEEK_SEARCH_URL]);
+  });
+});
+
+test("a model-specific failure is remembered and skipped on later calls", async (t) => {
+  await withTempCache(async () => {
+    const failed = openaiResponsesModel({ id: "gpt-5.6-luna" });
+    const healthy = openaiResponsesModel({ id: "gpt-6.1-terra" });
+    const ctx = createMockCtx({ model: failed, availableModels: [failed, healthy] });
+    const models = [];
+    mockFetch(t, ({ url, body }) => {
+      models.push(body.model);
+      if (url !== OPENAI_RESPONSES_URL) return unexpected(url);
+      if (body.model === "gpt-5.6-luna") {
+        return jsonResponse(
+          { error: { message: "model gpt-5.6-luna is not supported" } },
+          400,
+          "Bad Request",
+        );
+      }
+      return sseResponse(openaiSearchEvents("query", `answer from ${body.model}`));
+    });
+
+    const first = await runWebSearch({ query: "first" }, ctx);
+    assert.equal(first.isError, undefined);
+    assert.deepEqual(models, ["gpt-5.6-luna", "gpt-6.1-terra"]);
+
+    models.length = 0;
+    const second = await runWebSearch({ query: "second" }, ctx);
+    assert.equal(second.isError, undefined);
+    assert.deepEqual(models, ["gpt-6.1-terra"]);
+  });
+});
+
 test("all providers failing returns a tool error listing every attempt", async (t) => {
   await withTempCache(async () => {
     const ctx = createMockCtx({
@@ -300,10 +387,14 @@ test("all providers failing returns a tool error listing every attempt", async (
 
     const result = await runWebSearch({ query: "nothing works" }, ctx);
     assert.equal(result.isError, true);
-    assert.equal(result.content[0].text, "Failed: This tool is not available in this conversation.");
+    assert.match(result.content[0].text, /^Failed: /);
+    assert.match(result.content[0].text, /openai exploded/);
+    assert.match(result.content[0].text, /deepseek exploded/);
+    assert.doesNotMatch(result.content[0].text, /openai\/gpt-5\.1:/);
+    assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-chat:/);
     assert.deepEqual(
-      result.details.attempts.map((attempt) => attempt.provider).sort(),
-      ["deepseek", "openai"],
+      result.details.attempts.map((attempt) => `${attempt.provider}/${attempt.model}`).sort(),
+      ["deepseek/deepseek-chat", "openai/gpt-5.1"],
     );
     assert.equal(result.details.attempts.every((attempt) => attempt.phase === "search"), true);
   });

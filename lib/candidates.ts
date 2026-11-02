@@ -54,17 +54,17 @@ export const FETCH_CAP = FETCH_ATTEMPT_CAP;
 
 /**
  * Cheapest-first capability tiers per family, ordered small to large. The
- * first matching tier wins and ids that match no tier rank last, so fallback
- * does not burn a large model when a small one is available. Version numbers
- * are compared separately, newest first. Only families whose provider uses
- * tier names need an entry; everywhere else every model shares tier 0.
+ * first matching tier wins and ids that match no tier rank last. Tiers are a
+ * tiebreaker only after version comparison, so a newer model is not skipped
+ * just because its tier name is new or unknown. Only families whose provider
+ * uses tier names need an entry; everywhere else every model shares tier 0.
  */
 function tierMatcher(name: string): RegExp {
   return new RegExp(`(?:^|[^a-z0-9])${name}(?:$|[^a-z0-9])`, "i");
 }
 
 const MODEL_TIERS: Partial<Record<ProviderFamily, readonly RegExp[]>> = {
-  openai: ["luna", "sol", "astra"].map(tierMatcher),
+  openai: ["luna", "terra", "sol", "astra"].map(tierMatcher),
   anthropic: ["haiku", "sonnet", "opus", "fable"].map(tierMatcher),
 };
 
@@ -78,14 +78,64 @@ function modelTier(candidate: Candidate): number {
 }
 
 /**
- * Parse the first version-like run in a model id into a numeric tuple.
- * `gpt-6.1` -> [6, 1], `claude-opus-4-5` -> [4, 5], `gpt-oss:120b` -> [120].
- * Ids without a number return an empty tuple and rank below versioned ones.
+ * Brand order inside one provider family. A gateway such as opencode-go can
+ * expose DeepSeek and OpenAI models in the same family, and the user wants the
+ * DeepSeek models attempted first. OpenAI and Claude keep their named-tier
+ * ordering; other brands use the flash / base / pro variant order.
  */
-function versionTuple(id: string): number[] {
-  const match = id.match(/\d+(?:[.-]\d+)*/);
-  if (!match) return [];
-  return match[0].split(/[.-]/).map((part) => Number.parseInt(part, 10));
+function modelBrandRank(id: string): number {
+  const normalized = id.toLowerCase();
+  if (/^deepseek(?:[-_.:]|$)/.test(normalized)) return 0;
+  if (/^(?:gpt|chatgpt|codex)(?:[-_.:]|$)/.test(normalized) || /^o\d/.test(normalized)) return 1;
+  if (/^claude(?:[-_.:]|$)/.test(normalized)) return 2;
+  if (/^(?:gemini|gemma)(?:[-_.:]|$)/.test(normalized)) return 3;
+  return 4;
+}
+
+function modelVariantRank(id: string): number {
+  const normalized = id.toLowerCase();
+  if (/(?:^|[-_.])flash(?:$|[-_.])/.test(normalized)) return 0;
+  if (/(?:^|[-_.])pro(?:$|[-_.])/.test(normalized)) return 2;
+  return 1;
+}
+
+function usesVariantOrdering(brand: number): boolean {
+  return brand !== 1 && brand !== 2;
+}
+
+/**
+ * Parse the model version, not a date suffix or parameter count. The version
+ * prefix depends on the family: `gpt-6.1-terra` -> [6, 1], `o3-mini` -> [3],
+ * `claude-opus-4-5-20251101` -> [4, 5], `gemini-3.8-flash` -> [3, 8].
+ * Ids without a recognizable version return an empty tuple and rank below
+ * versioned models.
+ */
+function versionTuple(id: string, family: ProviderFamily): number[] {
+  const normalized = id.toLowerCase();
+  let match: RegExpMatchArray | null = null;
+
+  if (family === "openai") {
+    match = normalized.match(/^(?:gpt|o)[-_ ]?(\d+(?:\.\d+)*)/);
+  } else if (family === "anthropic") {
+    match = normalized.match(/^claude-(?:haiku|sonnet|opus|fable)-(\d+)(?:-(\d+))?/);
+    if (match) return [Number(match[1]), Number(match[2] ?? 0)];
+    match = normalized.match(/^claude-(\d+)(?:-(\d+))?/);
+    if (match) return [Number(match[1]), Number(match[2] ?? 0)];
+  } else if (family === "google") {
+    match = normalized.match(/^(?:gemini|gemma)[-_]?(\d+(?:\.\d+)*)/);
+    if (!match) return [];
+  } else if (family === "xai") {
+    match = normalized.match(/^grok[-_]?(\d+(?:\.\d+)*)/);
+  } else if (family === "deepseek") {
+    match = normalized.match(/^deepseek[-_]?v?(\d+(?:\.\d+)*)/);
+  }
+
+  if (match) return match[1].split(".").map((part) => Number.parseInt(part, 10));
+
+  // Generic fallback for custom models. Only dot-separated numbers count so
+  // date suffixes such as `...-10-2025` do not look like a newer version.
+  const generic = normalized.match(/\d+(?:\.\d+)*/);
+  return generic ? generic[0].split(".").map((part) => Number.parseInt(part, 10)) : [];
 }
 
 /** Compare version tuples so that a larger, newer version sorts first. */
@@ -178,15 +228,32 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Rank candidates inside one family independently of registry order. */
+/**
+ * Rank candidates inside one family independently of registry order. Brand
+ * order comes first (DeepSeek before OpenAI inside a gateway), then the
+ * flash / base / pro variant order for non-tiered brands, then the version
+ * number. Capability tier is a final tiebreaker for GPT and Claude models.
+ */
 export function rankFamilyCandidates(candidates: Candidate[]): Candidate[] {
-  return [...candidates].sort(
-    (left, right) =>
-      modelTier(left) - modelTier(right)
-      || compareVersionsDesc(versionTuple(left.model.id), versionTuple(right.model.id))
+  return [...candidates].sort((left, right) => {
+    const leftBrand = modelBrandRank(left.model.id);
+    const rightBrand = modelBrandRank(right.model.id);
+    const brandOrder = leftBrand - rightBrand;
+    if (brandOrder !== 0) return brandOrder;
+
+    if (usesVariantOrdering(leftBrand)) {
+      const variantOrder = modelVariantRank(left.model.id) - modelVariantRank(right.model.id);
+      if (variantOrder !== 0) return variantOrder;
+    }
+
+    return compareVersionsDesc(
+      versionTuple(left.model.id, left.family),
+      versionTuple(right.model.id, right.family),
+    )
+      || modelTier(left) - modelTier(right)
       || compareText(candidateKey(left), candidateKey(right))
-      || compareText(left.model.baseUrl ?? "", right.model.baseUrl ?? ""),
-  );
+      || compareText(left.model.baseUrl ?? "", right.model.baseUrl ?? "");
+  });
 }
 
 function supportsSearch(candidate: Candidate | undefined): candidate is Candidate {
@@ -274,25 +341,18 @@ function buildCandidates(
     }
   }
 
-  // Deeper fallback: alternate models from providers other than the current
-  // model's provider. Providers frequently reject one specific model (legacy
-  // IDs, account tiers, regional availability) while serving a sibling, so a
-  // single interface per family is too fragile. Round-robin across families so
-  // every family gets a second chance before any family gets a third, keeping
-  // the broad cross-provider coverage that the one-per-family pass provides.
-  //
-  // Only the current model's provider id is excluded: a different provider id
-  // in the same family (for example `openai` vs `openai-codex`, or `anthropic`
-  // vs `opencode-go`) has its own credentials and endpoint and is still worth
-  // trying. This mirrors the original "never repeat a provider id" rule while
-  // still allowing sibling models of a fallback provider.
-  const currentProvider = resolution.current?.model.provider;
+  // Deeper fallback: alternate models from every provider, including the
+  // current model's provider. Providers frequently reject one specific model
+  // (legacy IDs, account tiers, regional availability) while serving a sibling,
+  // so a single interface per family is too fragile. Round-robin across
+  // families so every family gets a second chance before any family gets a
+  // third, keeping the broad cross-provider coverage that the one-per-family
+  // pass provides. A provider-wide runtime failure still skips the rest of that
+  // provider id; only model-specific failures reach these siblings.
   const queues = new Map<ProviderFamily, Candidate[]>();
   for (const family of PROVIDER_FAMILIES) {
     const queue = usableFamilyCandidates(resolution, family, isUsable).filter(
-      (candidate) =>
-        candidate.model.provider !== currentProvider
-        && !seen.has(candidateKey(candidate)),
+      (candidate) => !seen.has(candidateKey(candidate)),
     );
     if (queue.length > 0) queues.set(family, queue);
   }

@@ -66,7 +66,8 @@ pi install ./path/to/pi-better-web-search
 ```
 
 - `query` 搜索网页。`site:`、引号、`AND`、`OR`、`-term` 等搜索语法原样传给
-  provider，只去掉首尾空白。
+  provider，只去掉首尾空白。如果 provider 有更短的 query 上限，adapter 只会在
+  发给该 provider 的副本上按词边界缩短；输出中仍保留原始 query。
 - `urls` 分析指定页面。可以**单独使用**，也可以和 `query` 一起使用。两者同时
   提供时，先搜索，再分析 URL。
 - 最多 **20** 个 URL。
@@ -116,28 +117,36 @@ Provider 识别顺序：
 
 搜索顺序：
 
-1. 当前模型支持搜索时，优先当前模型。
+1. 当前模型支持搜索，且对应 provider 和该模型都不在失败冷却期时，优先当前模型。
 2. 缓存指纹有效时，使用记住的搜索 provider。
 3. 其余 provider family 按固定顺序尝试：
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**。
-4. 同一 family 内先按能力等级排序（便宜的等级优先，未知等级排最后）：
-   OpenAI 为 `luna → sol → astra`，Claude 为 `haiku → sonnet → opus → fable`；
-   其他 family 没有命名等级，直接按版本号从新到旧排序。同级内版本号大的优先。
-5. 除当前模型的 provider id 外，其他 provider 的备用模型会按 round-robin 继续尝试，
-   这样即使某个账号拒绝某个具体模型，也能换用同 provider 的其他模型。
-   同一 family 下不同 provider id（如 `openai` 与 `openai-codex`）仍会尝试。
-   provider 级失败（鉴权、余额、网络、超时、请求头异常）会跳过该 provider 的
-   其余模型；模型级失败则继续尝试同 provider 的其他模型。
+4. 同一 family 内先按品牌排序：DeepSeek 模型、OpenAI、Claude、Gemini/Gemma，
+   然后其他网关品牌。没有命名等级的品牌按变体 `flash → base → pro` 排序，同一变体
+   内版本号从新到旧；GPT 和 Claude 仍按版本优先，版本相同时才按能力等级排序
+   （便宜的等级优先，未知等级排最后）：OpenAI 为 `luna → terra → sol → astra`，
+   Claude 为 `haiku → sonnet → opus → fable`。
+5. 所有 provider 的备用模型都会按 round-robin 继续尝试，包括当前模型同一
+   provider id 下的其他模型，这样即使某个账号拒绝某个具体模型，也能换用同
+   provider 的更新模型。provider 级失败（鉴权、余额、网络、超时、请求头异常）
+   会跳过该 provider 的其余模型；模型级失败则继续尝试同 provider 的其他模型。
 
 URL 抓取使用同样的思路，但只考虑实现了 URL 抓取的 provider。
 
-当前模型支持搜索时始终优先当前模型；缓存不会覆盖它。缓存主要用于当前模型
-不支持搜索时，让下一次调用直接使用之前成功的兼容 provider。
+当前模型支持搜索时通常优先当前模型，除非该 provider 或该模型正处于失败冷却期。
+缓存不会覆盖它。缓存主要用于当前模型不支持搜索时，让下一次调用直接使用之前成功
+的兼容 provider。
 
 Provider 报错时记录 attempt 并继续下一个接口。取消会立即停止。每次尝试有
 超时（默认 60 秒，`PI_BETTER_WEB_SEARCH_TIMEOUT_MS` 可调）。所有尝试都失败时，
-工具返回错误，列出尝试过的 provider/model 和错误。URL-only 调用还会报告每个
-URL 的失败原因。
+工具返回错误，消息中包含 provider 返回的错误；provider/model 路由信息保留在
+`details.attempts` 中。URL-only 调用还会报告每个 URL 的失败原因。
+
+Provider 级失败（鉴权、余额、网络、超时、请求头异常）和单个模型失败都会在扩展进程内
+记住。后续调用会把失败的 provider 或模型排到健康候选之后，搜索和 URL 抓取分别记录。
+冷却时间从 60 秒开始，连续失败时翻倍，最多 10 分钟；成功一次后清除。设置
+`PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS=0` 可禁用。已经在途的并发调用仍可能同时
+尝试同一个候选。
 
 ### 缓存指纹失效
 
@@ -268,8 +277,9 @@ Authorization: Bearer <DeepSeek API Key>
 Content-Type: application/json
 ```
 
-搜索使用 `query`、`count: 10`、`need_content: true`。原始 `results` 数组原样
-返回，包括 `rerank_score`、`title`、`url`、`snippet`、`summary`、`content`、
+搜索使用 `query`、`count: 10`、`need_content: true`。DeepSeek 的 `query` 上限为
+128 个 Unicode 字符，因此超长 query 只在请求中按词边界缩短。原始 `results`
+数组原样返回，包括 `rerank_score`、`title`、`url`、`snippet`、`summary`、`content`、
 `site_name`、`site_icon`、`date`、`authority` 和未知字段。
 
 Fetch 发送 `{ "url": "..." }`，原样保存 `{ title, content }`。URL 最长 8192

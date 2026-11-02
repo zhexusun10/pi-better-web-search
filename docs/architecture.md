@@ -14,8 +14,9 @@ output guard. It does not own provider result cleanup.
 4. **Use provider-native interfaces.** Each family keeps its request shape,
    authentication quirks, and stream format.
 5. **Prefer the current model, remember fallbacks.** A supported current model
-   is tried first. An unsupported current model uses the remembered compatible
-   provider first.
+   is tried first unless its provider is cooling down after a recent
+   provider-wide failure. An unsupported current model uses the remembered
+   compatible provider first.
 6. **Do not touch pi's system prompt.** No prompt snippets, guidelines, loadout
    hooks, commands, or extra tools.
 
@@ -72,26 +73,34 @@ Search candidates:
 2. The remembered search provider when the cache fingerprint is current.
 3. One candidate per remaining family in this order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
-4. Alternate models from every provider except the current model's provider
-   id, round-robin across families, up to 12 attempts. A different provider id
-   in the same family (for example `openai` vs `openai-codex`) is still tried.
+4. Alternate models from every provider, including the current model's
+   provider id, round-robin across families, up to 12 attempts. A provider-wide
+   failure still skips that provider id; a model-specific failure can use a
+   sibling model from the same provider.
 
 Fetch candidates use the same shape but include only adapters with
 `supportsUrls` and a `fetch` implementation. The fetch cap is 6 attempts.
 
-Within a family, models are ordered by capability tier first and version
-second. Named tiers rank cheapest first and unknown ids rank last: OpenAI uses
-`luna → sol → astra` and Claude uses `haiku → sonnet → opus → fable`. Other
-families have no named tiers. Version numbers are compared as tuples with the
-newest first (`gpt-7.0` before `gpt-6.1` before `gpt-4.1`, `gemini-3.8` before
-`gemini-2.5`). Ties fall back to the deterministic `provider/id@baseUrl` order.
+Within a family, models are ordered by brand first: DeepSeek, OpenAI, Claude,
+Gemini/Gemma, then other gateway brands. Brands without named tiers use variant
+order `flash → base → pro`, then version number, newest first. GPT and Claude
+use version number first, newest first, with capability tier as a tiebreaker:
+OpenAI uses `luna → terra → sol → astra` and Claude uses
+`haiku → sonnet → opus → fable`. Ties fall back to the deterministic
+`provider/id@baseUrl` order.
 A provider id is only retried with another model when the first failure was
 model-specific; provider-wide failures (auth, balance, network, timeout,
-malformed request) skip the rest of that provider.
+malformed request) skip the rest of that provider. Provider failures and
+model-specific failures are remembered per phase (search/fetch) for the life of
+the process. On later calls the failed provider or model is moved behind healthy
+candidates for a 60-second to 10-minute exponential cooldown; a success clears
+it. Calls already in flight are not cancelled or reordered.
 
-The current model is preferred when it supports search. The cache is a fallback,
-not an override. When the current model is unsupported, the cached provider is
-tried first, which avoids repeating discovery on every call.
+The current model is preferred when it supports search and neither its provider
+nor that model is cooling down. The cache is a fallback, not an override. When
+the current model
+is unsupported, the cached provider is tried first, which avoids repeating
+discovery on every call.
 
 ## Cache and fingerprint
 
@@ -125,6 +134,8 @@ be used. A cached provider that is no longer available is ignored.
 ## Input validation
 
 - `query` is trimmed; search operators are otherwise passed through unchanged.
+  Provider adapters may shorten the provider-bound copy when that provider has
+  a lower query-length limit; the model-facing output keeps the original query.
 - `urls` is an array of at most 20 strings.
 - Each URL must be HTTP/HTTPS, have a host, omit username/password, and be at
   most 8192 characters.
@@ -214,6 +225,7 @@ the abort signal and resolve credentials through `lib/auth.ts`.
 | `extensions/index.ts` | Tool registration, exposure sync, lifecycle handlers |
 | `lib/candidates.ts` | Current/available candidates, ordering, cache resolution |
 | `lib/search.ts` | Input validation, search/fetch fallback, cache writes, output |
+| `lib/health.ts` | Provider-wide failure cooldowns and candidate reordering |
 | `lib/auth.ts` | Credential resolution, header merging, env fallback |
 | `lib/cache.ts` | Preference cache and model-set fingerprint |
 | `lib/families.ts` | Provider family detection |

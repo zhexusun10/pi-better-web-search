@@ -55,7 +55,9 @@ POST https://api.deepseek.com/v1/tools/search
 ```
 
 - `query` is 1–128 Unicode characters, not all whitespace. Search operators are
-  passed through unchanged.
+  passed through unchanged. Longer agent-generated queries are shortened at a
+  word boundary for the DeepSeek request only; the original query is retained
+  in the model-facing output.
 - `count` is within the documented 1–50 range; this package uses 10.
 - `need_content` is `true`, so `content` can contain the page body. The output
   character guard protects the model context.

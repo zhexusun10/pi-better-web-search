@@ -53,6 +53,7 @@ manager, preference cache, and orchestrator described below.
 | `src/index.ts` | orchestrator-exposure | complete: single tool registration and sync |
 | `src/candidates.ts` | orchestrator-exposure | complete: discovery, ordering, exposure |
 | `src/search.ts` | orchestrator-exposure | complete: validation, fallback, cache, output |
+| `src/health.ts` | orchestrator-exposure | complete: provider failure cooldowns |
 | `src/providers/types.ts` | shared contract | complete |
 | `src/providers/index.ts` | shared contract | complete |
 | `src/providers/http.ts` | shared primitive | complete |
@@ -241,17 +242,19 @@ Use this order, skipping unavailable or unsupported entries:
 2. The cached search `ProviderRef` when the cache fingerprint is current, the
    referenced model still exists, is available, and supports search.
 3. Adapter families in `ADAPTERS` insertion order. For each family, choose one
-   available chat model deterministically. Models are ordered by capability
-   tier first (cheapest tier wins) and then by version number, newest first:
-   OpenAI tiers are `luna → sol → astra` and Claude tiers are
-   `haiku → sonnet → opus → fable`; other families have no named tiers. Ties
-   fall back to the lexicographic `provider/id@baseUrl` order.
-4. Alternate models from every provider except the current model's provider
-   id, round-robin across families so each family gets a second chance before
-   any family gets a third. A different provider id in the same family (for
-   example `openai` vs `openai-codex`) is still tried. This recovers from
-   provider accounts that reject a specific model (legacy ids, account tiers)
-   while serving a sibling.
+   available chat model deterministically. Brand order comes first (DeepSeek,
+   OpenAI, Claude, Gemini/Gemma, other gateway brands). Brands without named
+   tiers use variant order `flash → base → pro`, then version number, newest
+   first; GPT and Claude use version first, newest first, with capability tier
+   as a tiebreaker (cheapest tier wins): OpenAI tiers are
+   `luna → terra → sol → astra` and Claude tiers are
+   `haiku → sonnet → opus → fable`. Ties fall back to the lexicographic
+   `provider/id@baseUrl` order.
+4. Alternate models from every provider, including the current model's
+   provider id, round-robin across families so each family gets a second chance
+   before any family gets a third. This recovers from provider accounts that
+   reject a specific model (legacy ids, account tiers) while serving a sibling.
+   Provider-wide runtime failures still skip the rest of that provider id.
 
 On success, write `{ provider: model.provider, model: model.id }` as
 `cache.search` and update `cache.fingerprint`. Preserve a cached `fetch` ref
@@ -263,8 +266,12 @@ timeout, or a malformed request header) marks the provider id as failed so the
 same provider is not retried with another model; a model-specific failure (an
 unsupported, missing, or rejected model) keeps trying sibling models. On
 abort, stop immediately and propagate the abort instead of trying more
-providers. If every attempt fails, return `formatError` with a message that
-includes the attempted interfaces and the last significant error.
+providers. Provider-wide failures and model-specific failures are also
+remembered per phase for the life of the extension process; later calls move
+that provider or model behind healthy candidates for an exponential cooldown
+(60 seconds to 10 minutes). A success clears the failure. If every attempt
+fails, return `formatError` with a message that includes the provider errors;
+provider/model routing stays in `details.attempts`.
 
 ### 6.4 Deterministic fetch order
 
@@ -539,7 +546,9 @@ Search request:
 { "query": "search text", "count": 10, "need_content": true }
 ```
 
-- `query` is required and must be 1-128 Unicode characters.
+- `query` is required and must be 1-128 Unicode characters. The adapter shortens
+  an overlong query at a word boundary before the request; the orchestrator
+  keeps the original query in the model-facing output.
 - `count` is 1-50; use 10.
 - `need_content` is `true`.
 

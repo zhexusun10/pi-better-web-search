@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resetProviderFailures } from "../lib/health.ts";
+
 export function createModel(overrides = {}) {
   return {
     id: "test-model",
@@ -196,9 +198,11 @@ export async function withEnv(values, fn) {
 
 export async function withTempCache(fn) {
   const temp = createTempCache();
+  resetProviderFailures();
   try {
     return await withEnv({ PI_BETTER_WEB_SEARCH_CACHE: temp.path }, () => fn(temp));
   } finally {
+    resetProviderFailures();
     temp.cleanup();
   }
 }
