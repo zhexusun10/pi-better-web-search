@@ -70,10 +70,17 @@ export function formatSuccess(
 export function formatError(
   message: string,
   details: WebSearchDetails,
+  prefix = "Failed: ",
 ): AgentToolResult<WebSearchDetails> {
+  const full = `${prefix}${message}`;
+  const limited = truncateText(full, MAX_OUTPUT_CHARS);
+  const marker = "[truncated]";
+  const text = limited.truncated && MAX_OUTPUT_CHARS >= marker.length
+    ? `${truncateText(full, MAX_OUTPUT_CHARS - marker.length).text}${marker}`
+    : limited.text;
   return {
-    content: [{ type: "text", text: `Failed: ${message}` }],
-    details,
+    content: [{ type: "text", text }],
+    details: limited.truncated ? { ...details, truncated: true } : details,
     isError: true,
   };
 }

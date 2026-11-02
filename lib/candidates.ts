@@ -78,10 +78,10 @@ function modelTier(candidate: Candidate): number {
 }
 
 /**
- * Brand order inside one provider family. A gateway such as opencode-go can
- * expose DeepSeek and OpenAI models in the same family, and the user wants the
- * DeepSeek models attempted first. OpenAI and Claude keep their named-tier
- * ordering; other brands use the flash / base / pro variant order.
+ * Brand order among models that already support an adapter in the same family.
+ * A custom Responses gateway may expose several brands; OpenAI and Claude keep
+ * their named-tier ordering while other brands use flash / base / pro ordering.
+ * This ranking does not make an unsupported model API search-capable.
  */
 function modelBrandRank(id: string): number {
   const normalized = id.toLowerCase();
@@ -117,10 +117,14 @@ function versionTuple(id: string, family: ProviderFamily): number[] {
   if (family === "openai") {
     match = normalized.match(/^(?:gpt|o)[-_ ]?(\d+(?:\.\d+)*)/);
   } else if (family === "anthropic") {
-    match = normalized.match(/^claude-(?:haiku|sonnet|opus|fable)-(\d+)(?:-(\d+))?/);
-    if (match) return [Number(match[1]), Number(match[2] ?? 0)];
-    match = normalized.match(/^claude-(\d+)(?:-(\d+))?/);
-    if (match) return [Number(match[1]), Number(match[2] ?? 0)];
+    // A date can immediately follow a major version, e.g.
+    // claude-sonnet-4-20250514. Do not interpret it as a minor version.
+    match = normalized.match(/^claude-(?:haiku|sonnet|opus|fable)-(\d+)(?:-(\d+))?/)
+      ?? normalized.match(/^claude-(\d+)(?:-(\d+))?/);
+    if (match) {
+      const minor = match[2];
+      return [Number(match[1]), minor && minor.length < 8 ? Number(minor) : 0];
+    }
   } else if (family === "google") {
     match = normalized.match(/^(?:gemini|gemma)[-_]?(\d+(?:\.\d+)*)/);
     if (!match) return [];
@@ -319,8 +323,8 @@ function buildCandidates(
   }
 
   if (!resolution.fresh && cached && isUsable(cached)) {
-    // Never repeat the same provider id after the current model failed. A
-    // cached hint is only useful when it points at a different interface.
+    // Do not promote a cached sibling ahead of other providers. Siblings from
+    // the same provider remain eligible in the later fallback pass.
     const sameProviderSelected = selected.some(
       (candidate) => candidate.model.provider === cached.model.provider,
     );
@@ -341,14 +345,10 @@ function buildCandidates(
     }
   }
 
-  // Deeper fallback: alternate models from every provider, including the
-  // current model's provider. Providers frequently reject one specific model
-  // (legacy IDs, account tiers, regional availability) while serving a sibling,
-  // so a single interface per family is too fragile. Round-robin across
-  // families so every family gets a second chance before any family gets a
-  // third, keeping the broad cross-provider coverage that the one-per-family
-  // pass provides. A provider-wide runtime failure still skips the rest of that
-  // provider id; only model-specific failures reach these siblings.
+  // Prefer an interface from each provider before trying sibling models. A
+  // single provider may expose many highly ranked models in one family, but a
+  // provider-wide failure would make all of them unusable at once. Keep the
+  // family round-robin within each pass, then include every remaining sibling.
   const queues = new Map<ProviderFamily, Candidate[]>();
   for (const family of PROVIDER_FAMILIES) {
     const queue = usableFamilyCandidates(resolution, family, isUsable).filter(
@@ -356,33 +356,50 @@ function buildCandidates(
     );
     if (queue.length > 0) queues.set(family, queue);
   }
-
-  let progressed = true;
-  while (selected.length < cap && progressed) {
-    progressed = false;
-    for (const family of PROVIDER_FAMILIES) {
-      if (selected.length >= cap) break;
-      const queue = queues.get(family);
-      const next = queue?.shift();
-      if (next && addUnique(selected, next, seen, cap)) progressed = true;
+  const representedProviders = new Set(selected.map((candidate) => candidate.model.provider));
+  for (const distinctProvidersOnly of [true, false]) {
+    let progressed = true;
+    while (selected.length < cap && progressed) {
+      progressed = false;
+      for (const family of PROVIDER_FAMILIES) {
+        if (selected.length >= cap) break;
+        const queue = queues.get(family);
+        if (!queue) continue;
+        const index = distinctProvidersOnly
+          ? queue.findIndex((candidate) => !representedProviders.has(candidate.model.provider))
+          : 0;
+        if (index < 0 || index >= queue.length) continue;
+        const [next] = queue.splice(index, 1);
+        if (addUnique(selected, next, seen, cap)) {
+          representedProviders.add(next.model.provider);
+          progressed = true;
+        }
+      }
     }
   }
 
   return selected;
 }
 
-export function getSearchCandidates(resolution: ResolutionContext): Candidate[] {
+/** The orchestrator can request all candidates and cap actual attempts instead. */
+export function getSearchCandidates(
+  resolution: ResolutionContext,
+  cap = SEARCH_ATTEMPT_CAP,
+): Candidate[] {
   const cached = resolution.fresh
     ? undefined
     : resolveRef(resolution, resolution.cache.search, supportsSearch);
-  return buildCandidates(resolution, supportsSearch, cached, SEARCH_ATTEMPT_CAP);
+  return buildCandidates(resolution, supportsSearch, cached, cap);
 }
 
-export function getFetchCandidates(resolution: ResolutionContext): Candidate[] {
+export function getFetchCandidates(
+  resolution: ResolutionContext,
+  cap = FETCH_ATTEMPT_CAP,
+): Candidate[] {
   const cached = resolution.fresh
     ? undefined
     : resolveRef(resolution, resolution.cache.fetch, supportsUrls);
-  return buildCandidates(resolution, supportsUrls, cached, FETCH_ATTEMPT_CAP);
+  return buildCandidates(resolution, supportsUrls, cached, cap);
 }
 
 export function hasExposedCandidate(resolution: ResolutionContext): boolean {

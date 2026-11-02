@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.9
+
+- Preserve provider diversity and apply cooldowns before limiting actual search
+  and fetch attempts, so skipped siblings cannot crowd out healthy providers.
+- Reject DeepSeek search queries over 128 Unicode characters with a generic,
+  actionable `Search query is too long` error instead of silently shortening
+  them or trying a fallback.
+- Distinguish model-access 403 errors from provider-wide failures, and track
+  URL-fetch transport failures while preserving partial successes.
+- Count concurrent failures during one cooldown as a single outage; increase
+  backoff only when a subsequent attempt after expiry also fails.
+- Bound HTTP error bodies, individual attempt messages, and model-facing error
+  text. Fix Claude version parsing when a date follows the major version.
+- Clarify that brand ranking only covers supported APIs, and test OpenCode Go
+  against the actual pi model catalog rather than a fabricated API assignment.
+
 ## 0.1.8
 
 - Shorten overlong DeepSeek search queries at a word boundary before sending

@@ -17,7 +17,7 @@ npm run verify:package
   tarball contains runtime sources, docs, assets, and metadata, while excluding
   tests, scripts, CI files, the local reference checkout, and `DESIGN.md`.
 - `npm run build` runs the checks, tests, package verification, and packs
-  `dist/pi-better-web-search-0.1.7.tgz`.
+  `dist/pi-better-web-search-0.1.9.tgz`.
 
 Tests import the TypeScript sources directly. The suite mocks `globalThis.fetch`
 and uses temporary cache directories. Coverage includes:

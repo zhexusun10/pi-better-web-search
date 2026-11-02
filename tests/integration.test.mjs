@@ -15,6 +15,7 @@ import {
 import piBetterWebSearch, { createWebSearchToolManager } from "../extensions/index.ts";
 import { fingerprintAvailableModels, readCache } from "../lib/cache.ts";
 import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
+import { getProviderFailure, isModelCoolingDown, isProviderCoolingDown } from "../lib/health.ts";
 import { WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
 import { runWebSearch } from "../lib/search.ts";
 
@@ -282,32 +283,124 @@ test("provider-set changes invalidate the old cache and select the new priority 
   });
 });
 
-test("concurrent long-query searches all succeed through DeepSeek", async (t) => {
+test("concurrent DeepSeek queries reject only the ones over 128 Unicode characters", async (t) => {
   await withTempCache(async () => {
     const deepseek = deepseekModel();
     const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek] });
-    const queries = [
-      "cryptocurrency momentum trend following transaction costs out of sample Liu Tsyvinski 2021 cryptocurrency risk return time series momentum",
-      "cryptocurrency time series momentum trading strategies turnover transaction costs out of sample trend following moving average breakout academic rese",
-      "cryptocurrency short term reversal intraday momentum transaction costs liquidity limits academic research daily strategy",
-    ];
+    const queries = ["a".repeat(129), "😀".repeat(129), "😀".repeat(128)];
     const sentQueries = [];
     mockFetch(t, async ({ url, body }) => {
-      if (url !== DEEPSEEK_SEARCH_URL) return unexpected(url);
+      assert.equal(url, DEEPSEEK_SEARCH_URL);
       sentQueries.push(body.query);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return jsonResponse({ results: [{ title: `result-${sentQueries.length}` }] });
+      return jsonResponse({ results: [{ title: "result" }] });
     });
-
     const results = await Promise.all(queries.map((query) => runWebSearch({ query }, ctx)));
-
-    assert.equal(results.length, queries.length);
-    for (const [index, result] of results.entries()) {
-      assert.equal(result.isError, undefined);
-      assert.equal(JSON.parse(result.content[0].text).query, queries[index]);
+    for (const result of results.slice(0, 2)) {
+      assert.equal(result.isError, true);
+      assert.equal(
+        result.content[0].text,
+        "Search query is too long (129 Unicode characters). The maximum is 128 Unicode characters. Shorten the query and retry.",
+      );
+      assert.doesNotMatch(result.content[0].text, /deepseek/i);
+      assert.equal(result.details.error, result.content[0].text);
+      assert.deepEqual(result.details.attempts, []);
     }
-    assert.equal(sentQueries.length, queries.length);
-    assert.ok(sentQueries.every((query) => Array.from(query).length <= 128));
+    assert.equal(results[2].isError, undefined);
+    assert.equal(JSON.parse(results[2].content[0].text).query, queries[2]);
+    assert.deepEqual(sentQueries, [queries[2]]);
+    assert.equal(isProviderCoolingDown("search", "deepseek"), false);
+    assert.equal(isModelCoolingDown("search", "deepseek", deepseek.id), false);
+  });
+});
+
+test("a DeepSeek query length error returns immediately without fallback or URL fetch", async (t) => {
+  await withTempCache(async () => {
+    const deepseek = deepseekModel();
+    const openai = openaiResponsesModel();
+    const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek, openai] });
+    const calls = mockFetch(t, ({ url, body }) => {
+      assert.equal(url, DEEPSEEK_SEARCH_URL);
+      assert.equal(body.query, "short retry");
+      return jsonResponse({ results: [{ title: "retried" }] });
+    });
+    const query = `${"a".repeat(129)} site:example.org`;
+    const result = await runWebSearch({ query, urls: ["https://example.org/"] }, ctx);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, new RegExp(`${Array.from(query).length} Unicode characters`));
+    assert.match(result.content[0].text, /maximum is 128 Unicode characters/);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(result.details.attempts, []);
+    assert.equal(isModelCoolingDown("search", "deepseek", deepseek.id), false);
+
+    const retry = await runWebSearch({ query: "short retry" }, ctx);
+    assert.equal(retry.isError, undefined);
+    assert.equal(JSON.parse(retry.content[0].text).search.results[0].title, "retried");
+    assert.equal(calls.length, 1);
+  });
+});
+
+test("other providers can still accept queries longer than DeepSeek's limit", async (t) => {
+  await withTempCache(async () => {
+    const openai = openaiResponsesModel();
+    const deepseek = deepseekModel();
+    const ctx = createMockCtx({ model: openai, availableModels: [openai, deepseek] });
+    const query = `${"research ".repeat(20)}site:example.org`;
+    const calls = mockFetch(t, ({ url, body }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      assert.equal(body.input[0].content[0].text, query);
+      return sseResponse(openaiSearchEvents(query));
+    });
+    const result = await runWebSearch({ query }, ctx);
+    assert.equal(result.isError, undefined);
+    assert.equal(JSON.parse(result.content[0].text).query, query);
+    assert.equal(calls.length, 1);
+  });
+});
+
+test("a DeepSeek query length error preserves earlier provider attempts", async (t) => {
+  await withTempCache(async () => {
+    const openai = openaiResponsesModel();
+    const deepseek = deepseekModel();
+    const ctx = createMockCtx({ model: openai, availableModels: [openai, deepseek] });
+    const calls = mockFetch(t, ({ url }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      return jsonResponse({ error: { message: "temporary outage" } }, 500);
+    });
+    const result = await runWebSearch({ query: "x".repeat(129) }, ctx);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /maximum is 128 Unicode characters/);
+    assert.equal(result.details.attempts.length, 1);
+    assert.equal(result.details.attempts[0].provider, "openai");
+    assert.equal(calls.length, 1);
+    assert.equal(isProviderCoolingDown("search", "deepseek"), false);
+    assert.equal(isModelCoolingDown("search", "deepseek", deepseek.id), false);
+  });
+});
+
+test("a concurrent failure burst creates one cooldown, not five exponential steps", async (t) => {
+  await withTempCache(async () => {
+    const openai = openaiResponsesModel();
+    const deepseek = deepseekModel();
+    const ctx = createMockCtx({ model: openai, availableModels: [openai, deepseek] });
+    let openaiCalls = 0;
+    mockFetch(t, async ({ url }) => {
+      if (url === OPENAI_RESPONSES_URL) {
+        openaiCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return jsonResponse({ error: { message: "temporary outage" } }, 500);
+      }
+      if (url === DEEPSEEK_SEARCH_URL) return jsonResponse({ results: [] });
+      return unexpected(url);
+    });
+    const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+      runWebSearch({ query: `query ${index}` }, ctx),
+    ));
+    assert.ok(results.every((result) => !result.isError));
+    assert.equal(openaiCalls, 5);
+    const failure = getProviderFailure("search", "openai");
+    assert.equal(failure?.consecutiveFailures, 1);
+    assert.ok(failure.retryAt - Date.now() <= 60_000);
+    assert.ok(failure.retryAt - Date.now() > 55_000);
   });
 });
 
@@ -366,6 +459,43 @@ test("a model-specific failure is remembered and skipped on later calls", async 
     const second = await runWebSearch({ query: "second" }, ctx);
     assert.equal(second.isError, undefined);
     assert.deepEqual(models, ["gpt-6.1-terra"]);
+  });
+});
+
+test("a model-specific 403 from the real HTTP adapter falls back to its sibling", async (t) => {
+  await withTempCache(async () => {
+    const failed = openaiResponsesModel({ id: "gpt-6.1-sol" });
+    const healthy = openaiResponsesModel({ id: "gpt-6-luna" });
+    const ctx = createMockCtx({ model: failed, availableModels: [failed, healthy] });
+    const models = [];
+    mockFetch(t, ({ url, body }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      models.push(body.model);
+      if (body.model === failed.id) {
+        return jsonResponse({ error: { message: "Access denied", code: "model_not_allowed" } }, 403, "Forbidden");
+      }
+      return sseResponse(openaiSearchEvents("query", "sibling"));
+    });
+    const result = await runWebSearch({ query: "query" }, ctx);
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(models, [failed.id, healthy.id]);
+    assert.equal(result.details.attempts.length, 1);
+  });
+});
+
+test("large provider error bodies do not overflow the model response", async (t) => {
+  await withTempCache(async () => {
+    const model = openaiResponsesModel();
+    const ctx = createMockCtx({ model, availableModels: [model] });
+    mockFetch(t, ({ url }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      return new Response("x".repeat(200_000), { status: 500 });
+    });
+    const result = await runWebSearch({ query: "query" }, ctx);
+    assert.equal(result.isError, true);
+    assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
+    assert.match(result.content[0].text, /\[truncated\]/);
+    assert.ok(result.details.attempts[0].message.length <= 8_192);
   });
 });
 

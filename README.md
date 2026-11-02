@@ -17,6 +17,9 @@ and returns provider data as-is.
 
 ![pi-better-web-search architecture](https://raw.githubusercontent.com/zhexusun10/pi-better-web-search/main/assets/architecture.svg)
 
+> The npm registry may lag GitHub releases. If the version you want is not yet
+> published to npm, install the tagged GitHub release below instead.
+
 ```bash
 pi install npm:pi-better-web-search
 ```
@@ -26,7 +29,7 @@ Then start a new pi process, or run `/reload` in an existing session.
 GitHub and local installations also work:
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.9
 pi install ./path/to/pi-better-web-search
 ```
 
@@ -79,11 +82,11 @@ The runtime schema is logically:
 }
 ```
 
-- `query` searches the web. Search operators such as `site:`, quotes, `AND`,
-  `OR`, and `-term` are passed through unchanged (only outer whitespace is
-  trimmed). If a provider enforces a shorter query limit, its adapter shortens
-  only the provider-bound copy at a word boundary; the original query stays in
-  the output.
+- `query` searches the web. Outer whitespace is trimmed; search operators are
+  otherwise passed through unchanged. If DeepSeek is selected and the query
+  exceeds 128 Unicode characters, the tool returns an error with the actual
+  length and limit, asking the model to shorten the query and retry. It does not
+  send the query or silently truncate it. Other providers may accept longer queries.
 - `urls` analyzes the listed pages. URLs can be used **alone** or together with
   `query`. A query plus URLs performs a search and then analyzes the URLs.
 - At most **20** URLs may be supplied.
@@ -152,14 +155,16 @@ For a search:
    their capability tier as a tiebreaker: OpenAI tiers are
    `luna → terra → sol → astra` and Claude tiers are
    `haiku → sonnet → opus → fable`. Ties are deterministic.
-5. Alternate models from every provider are tried round-robin, so a provider
-   that rejects one specific model can still serve a sibling, including a
-   newer sibling from the same provider id. A provider-wide failure (auth,
-   balance, network, timeout, malformed request) skips the rest of that
-   provider; a model-specific failure keeps trying sibling models.
+5. Alternate providers are considered before additional models of an already
+   represented provider; siblings are then tried round-robin across families.
+   A provider-wide failure skips that provider, while a model-specific failure
+   (including a model-specific 403) can fall back to a sibling.
 
-URL fetching uses the same idea, but considers only providers that implement
-URL fetching.
+The search limit is 12 actual attempts; skipped candidates do not consume it.
+URL fetching follows the same idea with a separate limit of 6 actual attempts.
+Model ranking applies only to supported APIs: for example, the built-in
+`opencode-go` DeepSeek models use `openai-completions`, which this extension
+cannot search through and does not reinterpret as Responses.
 
 The current model is normally tried first when it supports search, unless its
 provider or model is in a failure cooldown. The cache does not replace a
@@ -167,20 +172,24 @@ supported current model; it mainly lets an unsupported current model use a
 remembered compatible provider immediately on later calls.
 
 If a provider errors, the extension records the attempt and moves to the next
-interface. Aborts stop immediately. Each attempt has a timeout (60 seconds by
+interface. An overlong query rejected by DeepSeek instead returns immediately
+without trying another provider or updating its health state. Aborts stop immediately. Each attempt has a timeout (60 seconds by
 default, configurable with `PI_BETTER_WEB_SEARCH_TIMEOUT_MS`). If every attempt
 fails, the tool returns an error whose message contains the provider errors.
 Provider/model routing remains in `details.attempts`. For a URL-only call, the
-error also reports the per-URL failures.
+error also reports the per-URL failures. Provider error bodies and model-facing
+error text are bounded to prevent an oversized error from filling the context.
 
 Provider-wide failures (auth, balance, network, timeout, malformed request) and
 model-specific failures are remembered for the life of the extension process.
 On later calls the failed provider or model is moved behind healthy candidates
 for search and fetch independently. The cooldown starts at 60 seconds, doubles
-on consecutive failures, and is capped at 10 minutes; a successful call clears
-it. Set `PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS=0` to disable this behavior.
-This does not prevent several calls already in flight from trying the same
-candidate at the same time.
+when a subsequent attempt after expiry fails, and is capped at 10 minutes.
+Concurrent failures during the same cooldown do not extend it; a successful
+search or a fetch with at least one successful URL and no provider transport
+error clears it. Set
+`PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS=0` to disable this behavior. Calls
+already in flight may still try the same candidate at the same time.
 
 ### Cache fingerprint invalidation
 
@@ -266,7 +275,7 @@ this:
 - Redirects are not resolved and sources are not derived.
 - Unknown provider fields are preserved when the result fits the size guard.
 
-A final output-size guard limits successful model-facing results to **96,000
+A final output-size guard limits model-facing results and errors to **96,000
 Unicode code points** by default. Normal-sized results retain their original
 fields and formatting. If indentation alone exceeds the limit, compact JSON is
 returned without dropping data or setting the truncation flag.
@@ -282,7 +291,7 @@ links or bare domains in unrecognized fields cannot always be identified. Other 
 entries omitted; results are not re-ranked or summarized.
 
 The JSON portion remains valid, followed by a single `[truncated]` line. No
-truncation metadata or per-string markers are added to the model-facing JSON.
+output-size truncation metadata or per-string markers are added to the JSON.
 Because of the trailing line, the complete text is not itself valid JSON.
 `details.truncated` is also set to `true` when data is actually removed.
 
@@ -331,8 +340,11 @@ Content-Type: application/json
 ```
 
 Search uses `query`, `count: 10`, and `need_content: true`. DeepSeek limits
-`query` to 128 Unicode characters, so longer queries are shortened at a word
-boundary for the request only. The raw `results` array is returned unchanged,
+`query` to 128 Unicode characters. Longer queries return an error before any
+DeepSeek request is sent; the model should shorten the query and retry. For
+example: `Search query is too long (129 Unicode characters). The maximum is
+128 Unicode characters. Shorten the query and retry.` The raw `results` array
+is returned unchanged,
 including `rerank_score`, `title`, `url`,
 `snippet`, `summary`, `content`, `site_name`, `site_icon`, `date`, `authority`,
 and any unknown fields.
@@ -364,7 +376,7 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## Verified
 
-- **116 unit and integration tests** covering exposure, schema variants,
+- **Unit and integration tests** covering exposure, schema variants,
   provider request shapes, SSE parsing, raw-result preservation, fallback,
   cache invalidation, URL handling, truncation, and abort behavior.
 - **Real DeepSeek Search/Fetch run** with a real API key: 10 raw search results,
@@ -406,7 +418,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-0.1.7.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-0.1.9.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

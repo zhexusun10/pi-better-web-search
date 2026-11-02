@@ -4,6 +4,8 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+  FETCH_ATTEMPT_CAP,
+  SEARCH_ATTEMPT_CAP,
   getFetchCandidates,
   getSearchCandidates,
   resolveResolutionContext,
@@ -14,6 +16,7 @@ import { writeCache, type PreferenceCache, type ProviderRef } from "./cache.ts";
 import {
   formatError,
   formatSuccess,
+  truncateText,
   type WebSearchAttempt,
   type WebSearchDetails,
   type WebSearchOutput,
@@ -25,6 +28,7 @@ import {
   recordModelFailure,
   recordProviderFailure,
 } from "./health.ts";
+import { QueryLengthError } from "./providers/types.ts";
 import { MAX_URLS } from "./schema.ts";
 
 export const DEFAULT_ATTEMPT_TIMEOUT_MS = 60_000;
@@ -50,10 +54,20 @@ interface FetchState {
   error?: string;
 }
 
+const MAX_ERROR_DETAIL_CHARS = 8_192;
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return String(error);
+}
+
+function limitErrorMessage(message: string): string {
+  const marker = "[truncated]";
+  const limited = truncateText(message, MAX_ERROR_DETAIL_CHARS);
+  return limited.truncated
+    ? `${truncateText(message, MAX_ERROR_DETAIL_CHARS - marker.length).text}${marker}`
+    : message;
 }
 
 function summarizeUrlErrors(errors: UrlValidationError[]): string {
@@ -203,7 +217,28 @@ const PROVIDER_WIDE_FAILURE_PATTERNS: readonly RegExp[] = [
   /\bbytestring\b/i,
 ];
 
-export function isProviderWideFailure(message: string): boolean {
+const MODEL_PERMISSION_PATTERNS: readonly RegExp[] = [
+  /\bmodel[_ -](?:not[_ -](?:found|allowed|available|supported)|access[_ -]denied)\b/i,
+  /\bmodels?\b[^\n]{0,200}\b(?:not (?:found|allowed|available|accessible|enabled|supported)|does not exist|access denied|permission denied)\b/i,
+  /\b(?:do(?:es)? not have|don't have|no|lack(?:s)?|denied|not (?:allowed|authorized|permitted))\b[^\n]{0,160}\b(?:access|permission|use)\b[^\n]{0,160}\bmodels?\b/i,
+  /\b(?:access|permission)\b[^\n]{0,160}\b(?:denied|not (?:granted|allowed|permitted))\b[^\n]{0,160}\bmodels?\b/i,
+  /\b(?:access|permission)\b[^\n]{0,160}\bmodels?\b[^\n]{0,160}\b(?:denied|not (?:granted|allowed|permitted))\b/i,
+];
+
+export function isProviderWideFailure(message: string, error?: unknown): boolean {
+  const details = typeof error === "object" && error !== null
+    ? error as { status?: unknown; code?: unknown }
+    : undefined;
+  const isForbidden = details?.status === 403 || details?.status === "403"
+    || /(?:\(|HTTP\s+|status(?:\s+code)?\s*)403\b|\bforbidden\b/i.test(message);
+  const code = typeof details?.code === "string" ? details.code : "";
+  if (isForbidden && MODEL_PERMISSION_PATTERNS.some((pattern) => pattern.test(`${code} ${message}`))) {
+    return false;
+  }
+  const status = typeof details?.status === "number" || typeof details?.status === "string"
+    ? Number(details.status)
+    : NaN;
+  if (status === 401 || status === 403 || status === 429 || (status >= 500 && status < 600)) return true;
   return PROVIDER_WIDE_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
@@ -256,17 +291,20 @@ async function runSearch(
   onUpdate: AgentToolUpdateCallback | undefined,
   attempts: WebSearchAttempt[],
 ): Promise<SearchSuccess | undefined> {
-  const candidates = getSearchCandidates(resolution);
+  const candidates = getSearchCandidates(resolution, Infinity);
   if (candidates.length === 0) return undefined;
 
-  // Providers whose failure was not model-specific are not retried with a
-  // different model, so a dead credential or network path does not burn the
-  // whole attempt budget on one interface.
+  // Skipped candidates do not consume the budget. Consider the full discovery
+  // set when applying cooldowns so a healthy provider beyond the cap is usable.
   const failedProviders = new Set<string>();
+  let attemptCount = 0;
 
   for (const candidate of prioritizeCandidates("search", candidates)) {
     if (externalSignal?.aborted) throw abortReason(externalSignal);
     if (failedProviders.has(candidate.model.provider)) continue;
+    if (attemptCount >= SEARCH_ATTEMPT_CAP) break;
+    attemptCount += 1;
+    const attemptStartedAt = Date.now();
 
     const timeout = timeoutMs();
     const signal = attemptSignal(externalSignal, timeout);
@@ -283,22 +321,29 @@ async function runSearch(
       return { candidate, result: result ?? {} };
     } catch (error) {
       if (externalSignal?.aborted) throw abortReason(externalSignal);
-      const message = errorMessage(error);
+      // Input validation is actionable by the model and must not poison health
+      // or silently fall through to another provider.
+      if (error instanceof QueryLengthError) throw error;
+      const rawMessage = errorMessage(error);
+      const providerWide = isProviderWideFailure(rawMessage, error);
+      const message = limitErrorMessage(rawMessage);
       attempts.push({
         phase: "search",
         provider: candidate.model.provider,
         model: candidate.model.id,
         message,
       });
-      if (isProviderWideFailure(message)) {
+      if (providerWide) {
         failedProviders.add(candidate.model.provider);
-        recordProviderFailure("search", candidate.model.provider, message);
+        recordProviderFailure("search", candidate.model.provider, message, Date.now(), attemptStartedAt);
       } else {
         recordModelFailure(
           "search",
           candidate.model.provider,
           candidate.model.id,
           message,
+          Date.now(),
+          attemptStartedAt,
         );
       }
     }
@@ -331,7 +376,7 @@ function assignFetchEntries(
     if (index === undefined) continue;
 
     if (entry.error || entry.data === undefined) {
-      states[index].error = entry.error || "Provider did not return data for this URL";
+      states[index].error = limitErrorMessage(entry.error || "Provider did not return data for this URL");
       continue;
     }
 
@@ -369,11 +414,15 @@ async function runFetch(
   // As with search, a provider-wide failure is not retried with another model
   // from the same provider id.
   const failedProviders = new Set<string>();
+  let attemptCount = 0;
 
   for (const candidate of prioritizeCandidates("fetch", candidates)) {
     if (remaining.length === 0) break;
     if (externalSignal?.aborted) throw abortReason(externalSignal);
     if (failedProviders.has(candidate.model.provider)) continue;
+    if (attemptCount >= FETCH_ATTEMPT_CAP) break;
+    attemptCount += 1;
+    const attemptStartedAt = Date.now();
 
     const timeout = timeoutMs();
     const signal = attemptSignal(externalSignal, timeout);
@@ -400,8 +449,21 @@ async function runFetch(
 
       const assigned = assignFetchEntries(states, remaining, result?.entries ?? [], candidate);
       remaining = assigned.remaining;
-      clearProviderFailure("fetch", candidate.model.provider);
-      clearModelFailure("fetch", candidate.model.provider, candidate.model.id);
+      if (result?.providerError) {
+        const message = limitErrorMessage(result.providerError);
+        attempts.push({
+          phase: "fetch",
+          provider: candidate.model.provider,
+          model: candidate.model.id,
+          message,
+        });
+        failedProviders.add(candidate.model.provider);
+        recordProviderFailure("fetch", candidate.model.provider, message, Date.now(), attemptStartedAt);
+        for (const index of remaining) states[index].error ||= message;
+      } else if (assigned.successful > 0) {
+        clearProviderFailure("fetch", candidate.model.provider);
+        clearModelFailure("fetch", candidate.model.provider, candidate.model.id);
+      }
 
       if (assigned.successful > 0) {
         // Replace only on a strictly larger success count, so the first
@@ -413,22 +475,26 @@ async function runFetch(
       }
     } catch (error) {
       if (externalSignal?.aborted) throw abortReason(externalSignal);
-      const message = errorMessage(error);
+      const rawMessage = errorMessage(error);
+      const providerWide = isProviderWideFailure(rawMessage, error);
+      const message = limitErrorMessage(rawMessage);
       attempts.push({
         phase: "fetch",
         provider: candidate.model.provider,
         model: candidate.model.id,
         message,
       });
-      if (isProviderWideFailure(message)) {
+      if (providerWide) {
         failedProviders.add(candidate.model.provider);
-        recordProviderFailure("fetch", candidate.model.provider, message);
+        recordProviderFailure("fetch", candidate.model.provider, message, Date.now(), attemptStartedAt);
       } else {
         recordModelFailure(
           "fetch",
           candidate.model.provider,
           candidate.model.id,
           message,
+          Date.now(),
+          attemptStartedAt,
         );
       }
       for (const index of remaining) {
@@ -495,7 +561,12 @@ export async function runWebSearch(
       return formatError(message, { attempts, error: message });
     }
 
-    searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
+    try {
+      searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
+    } catch (error) {
+      if (!(error instanceof QueryLengthError)) throw error;
+      return formatError(error.message, { attempts, error: error.message }, "");
+    }
     if (!searchSuccess) {
       const providerErrors = attemptMessages(attempts, "search");
       const message = providerErrors || "This tool is not available in this conversation.";
@@ -503,7 +574,7 @@ export async function runWebSearch(
     }
   }
 
-  const fetchCandidates = validFetchRequested ? getFetchCandidates(resolution) : [];
+  const fetchCandidates = validFetchRequested ? getFetchCandidates(resolution, Infinity) : [];
   if (validFetchRequested && fetchCandidates.length === 0) {
     const message = "URL fetch is not available in this conversation.";
     // The search half succeeded; remember it even though the URL half did not.

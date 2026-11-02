@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 
 import {
   anthropicModel,
@@ -200,23 +201,35 @@ test("OpenAI tiers rank luna before terra before sol before astra", async () => 
   });
 });
 
-test("a gateway orders DeepSeek models before OpenAI models", async () => {
-  const luna = openaiResponsesModel({ id: "gpt-5.6-luna", provider: "opencode-go" });
-  const terra = openaiResponsesModel({ id: "gpt-6.1-terra", provider: "opencode-go" });
-  const deepseekPro = openaiResponsesModel({ id: "deepseek-v4-pro", provider: "opencode-go" });
-  const deepseekFlash = openaiResponsesModel({ id: "deepseek-v4-flash", provider: "opencode-go" });
+test("a custom Responses gateway orders supported DeepSeek models before GPT", async () => {
+  const luna = openaiResponsesModel({ id: "gpt-5.6-luna", provider: "custom-responses" });
+  const terra = openaiResponsesModel({ id: "gpt-6.1-terra", provider: "custom-responses" });
+  const deepseekPro = openaiResponsesModel({ id: "deepseek-v4-pro", provider: "custom-responses" });
+  const deepseekFlash = openaiResponsesModel({ id: "deepseek-v4-flash", provider: "custom-responses" });
   const ctx = ctxFor(unsupportedLocalModel(), [luna, terra, deepseekPro, deepseekFlash]);
 
   await withResolution(ctx, undefined, (resolution) => {
     assert.deepEqual(
       getSearchCandidates(resolution).map(candidateKey),
       [
-        "opencode-go/deepseek-v4-flash",
-        "opencode-go/deepseek-v4-pro",
-        "opencode-go/gpt-6.1-terra",
-        "opencode-go/gpt-5.6-luna",
+        "custom-responses/deepseek-v4-flash",
+        "custom-responses/deepseek-v4-pro",
+        "custom-responses/gpt-6.1-terra",
+        "custom-responses/gpt-5.6-luna",
       ],
     );
+  });
+});
+
+test("real OpenCode Go catalog excludes DeepSeek completions rather than inventing Responses support", async () => {
+  const models = getBuiltinModels("opencode-go");
+  const deepseek = models.find((model) => model.id === "deepseek-v4-pro");
+  const gpt = models.find((model) => model.id === "gpt-6-luna");
+  assert.ok(deepseek && gpt);
+  assert.equal(deepseek.api, "openai-completions");
+  assert.equal(gpt.api, "openai-responses");
+  await withResolution(ctxFor(unsupportedLocalModel(), [deepseek, gpt]), undefined, (resolution) => {
+    assert.deepEqual(getSearchCandidates(resolution).map(candidateKey), ["opencode-go/gpt-6-luna"]);
   });
 });
 
@@ -274,6 +287,19 @@ test("Claude tiers rank haiku before sonnet before opus before fable", async () 
   });
 });
 
+test("Claude date suffixes do not become minor versions", async () => {
+  const older = anthropicModel({ id: "claude-sonnet-4-20250514" });
+  const newer = anthropicModel({ id: "claude-sonnet-4-6" });
+  const datedMinor = anthropicModel({ id: "claude-sonnet-4-5-20250929" });
+  await withResolution(ctxFor(unsupportedLocalModel(), [older, datedMinor, newer]), undefined, (resolution) => {
+    assert.deepEqual(getSearchCandidates(resolution).map(candidateKey), [
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-sonnet-4-5-20250929",
+      "anthropic/claude-sonnet-4-20250514",
+    ]);
+  });
+});
+
 test("a family contributes alternate models only after every family primary", async () => {
   const current = unsupportedLocalModel();
   const openaiLegacy = openaiResponsesModel({ id: "gpt-4.1" });
@@ -313,6 +339,18 @@ test("a different provider id in the current model's family is still tried", asy
       getSearchCandidates(resolution).map(candidateKey),
       ["zicc-anthropic/claude-opus-5-5", "opencode-go/claude-haiku-5-5"],
     );
+  });
+});
+
+test("real OpenAI siblings cannot crowd Codex out of the capped candidates", async () => {
+  const models = getBuiltinModels("openai").filter((model) => model.api === "openai-responses");
+  const current = models.find((model) => model.id === "gpt-6.1-sol");
+  const codex = getBuiltinModels("openai-codex").find((model) => model.id === "gpt-5.3-codex-spark");
+  assert.ok(current && codex);
+  await withResolution(ctxFor(current, [...models, codex]), undefined, (resolution) => {
+    const candidates = getSearchCandidates(resolution);
+    assert.equal(candidates.length, SEARCH_ATTEMPT_CAP);
+    assert.ok(candidates.some((candidate) => candidate.model.provider === "openai-codex"));
   });
 });
 

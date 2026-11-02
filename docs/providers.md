@@ -20,8 +20,10 @@ stream parsing, and error behavior:
 | * | **Anthropic Messages** | api `anthropic-messages` | Yes | No | Messages API `web_search_20260209` tool & OAuth |
 
 A model whose API is `openai-completions` is not search-capable unless it is
-served by DeepSeek or Ollama Cloud. A local Ollama daemon is not supported;
-Ollama Cloud uses the hosted REST API.
+served by the native DeepSeek provider or Ollama Cloud. In particular, the
+built-in `opencode-go` DeepSeek models use `openai-completions`; brand ranking
+does not make them Responses-compatible or expose them as search candidates.
+A local Ollama daemon is not supported; Ollama Cloud uses the hosted REST API.
 
 ## DeepSeek
 
@@ -54,10 +56,11 @@ POST https://api.deepseek.com/v1/tools/search
 }
 ```
 
-- `query` is 1–128 Unicode characters, not all whitespace. Search operators are
-  passed through unchanged. Longer agent-generated queries are shortened at a
-  word boundary for the DeepSeek request only; the original query is retained
-  in the model-facing output.
+- `query` is 1–128 Unicode characters, not all whitespace. Longer queries
+  return a model-facing error with the actual length and the 128-character
+  limit; the model should shorten the query and retry. No DeepSeek request is
+  sent, no automatic truncation or fallback occurs, and no failure cooldown is
+  recorded.
 - `count` is within the documented 1–50 range; this package uses 10.
 - `need_content` is `true`, so `content` can contain the page body. The output
   character guard protects the model context.

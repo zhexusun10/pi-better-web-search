@@ -163,8 +163,11 @@ export const ollamaAdapter: ProviderAdapter = {
         });
       } catch (error) {
         rethrowAbort(error, signal);
-        entries.push({ url, error: errorMessage(error) });
-        continue;
+        const providerError = errorMessage(error);
+        entries.push({ url, error: providerError });
+        // Transport failures reach the provider endpoint, not the target URL.
+        // Preserve earlier successes but do not repeat a broken connection.
+        return { entries, providerError };
       }
       checkAbort(signal);
 

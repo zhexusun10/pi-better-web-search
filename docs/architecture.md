@@ -73,13 +73,14 @@ Search candidates:
 2. The remembered search provider when the cache fingerprint is current.
 3. One candidate per remaining family in this order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
-4. Alternate models from every provider, including the current model's
-   provider id, round-robin across families, up to 12 attempts. A provider-wide
-   failure still skips that provider id; a model-specific failure can use a
-   sibling model from the same provider.
+4. Prefer previously unrepresented provider ids, then try remaining sibling
+   models round-robin across families. Provider-wide failures skip that
+   provider; model-specific failures, including model-access 403s, can use a
+   sibling model. The cap is 12 actual search attempts, not skipped candidates.
 
 Fetch candidates use the same shape but include only adapters with
-`supportsUrls` and a `fetch` implementation. The fetch cap is 6 attempts.
+`supportsUrls` and a `fetch` implementation. The fetch cap is 6 actual attempts.
+Cooldowns are applied to the full discovery set before either cap.
 
 Within a family, models are ordered by brand first: DeepSeek, OpenAI, Claude,
 Gemini/Gemma, then other gateway brands. Brands without named tiers use variant
@@ -87,14 +88,19 @@ order `flash → base → pro`, then version number, newest first. GPT and Claud
 use version number first, newest first, with capability tier as a tiebreaker:
 OpenAI uses `luna → terra → sol → astra` and Claude uses
 `haiku → sonnet → opus → fable`. Ties fall back to the deterministic
-`provider/id@baseUrl` order.
+`provider/id@baseUrl` order. Ranking only applies to models whose API is already
+supported. For example, built-in `opencode-go` DeepSeek models use
+`openai-completions` and are not eligible for Responses search.
 A provider id is only retried with another model when the first failure was
 model-specific; provider-wide failures (auth, balance, network, timeout,
 malformed request) skip the rest of that provider. Provider failures and
 model-specific failures are remembered per phase (search/fetch) for the life of
 the process. On later calls the failed provider or model is moved behind healthy
-candidates for a 60-second to 10-minute exponential cooldown; a success clears
-it. Calls already in flight are not cancelled or reordered.
+candidates for a 60-second to 10-minute exponential cooldown. Concurrent
+failures during an active cooldown count as one outage; a failed probe after
+expiry increases the cooldown. A successful search or fetch with at least one
+successful URL and no provider transport error clears it. Calls already in
+flight are not cancelled or reordered.
 
 The current model is preferred when it supports search and neither its provider
 nor that model is cooling down. The cache is a fallback, not an override. When
@@ -133,9 +139,10 @@ be used. A cached provider that is no longer available is ignored.
 
 ## Input validation
 
-- `query` is trimmed; search operators are otherwise passed through unchanged.
-  Provider adapters may shorten the provider-bound copy when that provider has
-  a lower query-length limit; the model-facing output keeps the original query.
+- `query` is trimmed. When DeepSeek is selected, queries over 128 Unicode
+  characters produce an actionable error before any DeepSeek request; no
+  automatic truncation, fallback, or health cooldown occurs. Other providers
+  are not subject to this limit.
 - `urls` is an array of at most 20 strings.
 - Each URL must be HTTP/HTTPS, have a host, omit username/password, and be at
   most 8192 characters.
@@ -169,10 +176,11 @@ The result is a JSON wrapper:
 }
 ```
 
-Fields inside `search` and `fetched[].data` are provider data. The extension does
-not deduplicate, normalize, filter, re-rank, summarize, insert citation markers,
-or append source sections. The final guard keeps successful model-facing output
-within 96,000 Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).
+Fields inside `search` and `fetched[].data` are provider data. The extension
+does not deduplicate,
+normalize, filter, re-rank, summarize, insert citation markers, or append source
+sections. The final guard keeps model-facing results and errors within 96,000
+Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).
 It preserves ordinary formatted JSON, or uses compact JSON if that alone fits.
 Otherwise it budgets sibling fields and array entries independently. Recognized
 link and identity fields stay whole; entries or branches that cannot fit them
@@ -182,8 +190,8 @@ rather than partially emitted. Unknown relative links or bare domains may not be
 identifiable. Other strings can be shortened, and fields or trailing array entries
 omitted. The JSON portion
 stays valid, followed by one `[truncated]` line; the complete text is therefore
-not valid JSON. No truncation metadata is injected into the model-facing JSON,
-while `details.truncated` marks actual data loss. When truncation is needed with a limit of 11–13 characters,
+not valid JSON. No output-size truncation metadata is injected into the JSON;
+`details.truncated` marks output-size data loss. When truncation is needed with a limit of 11–13 characters,
 only the marker is returned; below 11, a minimal JSON value is returned instead.
 This is a character guard, not a token or model-context limit; it does not
 provide pagination or retain the complete provider payload for later use.

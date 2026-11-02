@@ -141,6 +141,7 @@ export interface ProviderFetchEntry {
 
 export interface ProviderFetchResult {
   entries: ProviderFetchEntry[];
+  providerError?: string;
 }
 
 export interface ProviderAdapter {
@@ -250,28 +251,26 @@ Use this order, skipping unavailable or unsupported entries:
    `luna → terra → sol → astra` and Claude tiers are
    `haiku → sonnet → opus → fable`. Ties fall back to the lexicographic
    `provider/id@baseUrl` order.
-4. Alternate models from every provider, including the current model's
-   provider id, round-robin across families so each family gets a second chance
-   before any family gets a third. This recovers from provider accounts that
-   reject a specific model (legacy ids, account tiers) while serving a sibling.
-   Provider-wide runtime failures still skip the rest of that provider id.
+4. Prefer unrepresented provider ids, then alternate models from every
+   provider, including the current model's provider, round-robin across
+   families. A provider-wide failure skips its remaining candidates. Apply
+   cooldowns to the full discovery set and cap actual search attempts at 12.
+   Brand ranking applies only to already-supported APIs; built-in OpenCode Go
+   DeepSeek completions models are not Responses search candidates.
 
 On success, write `{ provider: model.provider, model: model.id }` as
 `cache.search` and update `cache.fingerprint`. Preserve a cached `fetch` ref
 only when the fingerprint was already current (or that fetch interface was
 revalidated in the same call); a stale, unverified ref must not inherit the new
 fingerprint. On a provider error, append a `WebSearchAttempt` and continue. A
-provider-wide failure (401/403/429, insufficient balance, network failure,
-timeout, or a malformed request header) marks the provider id as failed so the
-same provider is not retried with another model; a model-specific failure (an
-unsupported, missing, or rejected model) keeps trying sibling models. On
-abort, stop immediately and propagate the abort instead of trying more
-providers. Provider-wide failures and model-specific failures are also
-remembered per phase for the life of the extension process; later calls move
-that provider or model behind healthy candidates for an exponential cooldown
-(60 seconds to 10 minutes). A success clears the failure. If every attempt
-fails, return `formatError` with a message that includes the provider errors;
-provider/model routing stays in `details.attempts`.
+provider-wide failure (auth, balance, rate limit, network failure, timeout, or
+malformed request header) marks the provider id as failed. A model-specific
+failure, including an explicit model-access 403, keeps trying siblings. On
+abort, stop immediately. Failures are remembered per phase and move candidates
+behind healthy ones for a 60-second to 10-minute exponential cooldown. Further
+failures during the same cooldown do not extend it; a failed probe after expiry
+increases it. A successful operation clears the failure. If every attempt
+fails, return bounded provider errors; routing stays in `details.attempts`.
 
 ### 6.4 Deterministic fetch order
 
@@ -281,8 +280,9 @@ If `urls` is present and URL fetching is allowed:
 2. The cached fetch `ProviderRef` when the fingerprint is current and the model
    is still a usable fetch interface.
 3. Adapter families in `ADAPTERS` insertion order with `supportsUrls`.
-4. Alternate URL-capable models from every family except the current model's
-   family, round-robin across families, mirroring the search order.
+4. Alternate URL-capable models from every provider, mirroring search order.
+   Cap actual fetch attempts at 6; preserve partial URL successes when a
+   provider transport error interrupts a batch.
 
 A search and a fetch may use different providers. Keep provider/model routing
 metadata in `details`, not in the model-facing output. Preserve per-URL errors
@@ -422,13 +422,17 @@ Rules:
   entries or branches that cannot fit are omitted rather than returning partial
   links, and text cuts do not leave partial URL tokens. Provider order is not
   changed. The JSON portion remains valid and is followed by a single
-  `[truncated]` line; no truncation metadata or per-string markers are added. The complete text
-  is therefore not valid JSON. `details.truncated = true` reports actual data
+  `[truncated]` line; no output-size truncation metadata or per-string markers
+  are added. The complete text is therefore not valid JSON.
+  `details.truncated = true` reports actual data
   loss. When truncation is needed with limits of 11–13 characters, return only
   the marker; smaller limits return a minimal JSON value instead. The cap counts
   Unicode code points, not tokens; there is no continuation cache.
-- `formatError(message, details)` returns exactly
-  `Failed: <message>`, the supplied details, and `isError: true`.
+- `formatError(message, details)` normally returns `Failed: <message>` and
+  `isError: true`, bounded by `MAX_OUTPUT_CHARS` with a marker when truncated.
+  Query-length errors omit the prefix and provider name, beginning directly
+  with `Search query is too long`. HTTP error bodies and individual attempt
+  messages are bounded separately.
 - `resultCount` and `fetchedCount` are metadata only. Do not use them to rewrite
   provider output.
 
@@ -546,9 +550,10 @@ Search request:
 { "query": "search text", "count": 10, "need_content": true }
 ```
 
-- `query` is required and must be 1-128 Unicode characters. The adapter shortens
-  an overlong query at a word boundary before the request; the orchestrator
-  keeps the original query in the model-facing output.
+- `query` is required and must be 1-128 Unicode characters. The adapter rejects
+  an overlong query before credential resolution or network access. Return the
+  actual length, the limit, and an instruction to shorten and retry; do not
+  truncate the query, fall back to another provider, or record a health failure.
 - `count` is 1-50; use 10.
 - `need_content` is `true`.
 

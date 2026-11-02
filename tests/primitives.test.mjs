@@ -67,6 +67,7 @@ import {
 } from "../lib/format.ts";
 import {
   HttpError,
+  MAX_ERROR_BODY_BYTES,
   responseError,
   isAbortError,
   readJson,
@@ -404,6 +405,7 @@ test("HTTP helpers expose status, extract OpenAI errors, and detect aborts", asy
   const error = await responseError(response, "DeepSeek");
   assert.ok(error instanceof HttpError);
   assert.equal(error.status, 429);
+  assert.equal(error.code, "429");
   assert.match(error.message, /DeepSeek API error \(429 Too Many Requests\): rate limited/);
   assert.match(error.body, /rate_limit/);
 
@@ -415,4 +417,29 @@ test("HTTP helpers expose status, extract OpenAI errors, and detect aborts", asy
   const controller = new AbortController();
   controller.abort();
   assert.equal(isAbortError(new Error("boom"), controller.signal), true);
+});
+
+test("HTTP error bodies stop reading and cancel once the byte limit is reached", async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(8_192).fill(120));
+    },
+    cancel() { cancelled = true; },
+  });
+  const error = await responseError(new Response(stream, { status: 500 }), "Provider");
+  assert.equal(cancelled, true);
+  assert.ok(pulls <= 10);
+  assert.ok(Buffer.byteLength(error.body, "utf8") <= MAX_ERROR_BODY_BYTES + 20);
+  assert.match(error.body, /\[truncated\]$/);
+});
+
+test("error formatting respects the output budget even for non-HTTP errors", () => {
+  const error = formatError("😀".repeat(MAX_OUTPUT_CHARS * 2), { attempts: [] });
+  assert.equal(error.isError, true);
+  assert.equal(error.details.truncated, true);
+  assert.equal(Array.from(error.content[0].text).length, MAX_OUTPUT_CHARS);
+  assert.match(error.content[0].text, /\[truncated\]$/);
 });

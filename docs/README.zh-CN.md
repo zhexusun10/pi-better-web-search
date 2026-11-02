@@ -10,6 +10,9 @@
 
 ![pi-better-web-search 架构](https://raw.githubusercontent.com/zhexusun10/pi-better-web-search/main/assets/architecture.svg)
 
+> npm 版本可能落后于 GitHub Release。如果所需版本尚未发布到 npm，可使用
+> 下方指定标签的 GitHub 安装方式。
+
 ```bash
 pi install npm:pi-better-web-search
 ```
@@ -19,7 +22,7 @@ pi install npm:pi-better-web-search
 也可以从 GitHub 或本地安装：
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.9
 pi install ./path/to/pi-better-web-search
 ```
 
@@ -65,9 +68,9 @@ pi install ./path/to/pi-better-web-search
 }
 ```
 
-- `query` 搜索网页。`site:`、引号、`AND`、`OR`、`-term` 等搜索语法原样传给
-  provider，只去掉首尾空白。如果 provider 有更短的 query 上限，adapter 只会在
-  发给该 provider 的副本上按词边界缩短；输出中仍保留原始 query。
+- `query` 搜索网页，只去掉首尾空白，搜索语法其余部分原样保留。如果选中
+  DeepSeek 且 query 超过 128 个 Unicode 字符，工具会直接返回实际长度和上限，
+  提示模型缩短后重试；不会发送请求或静默截断。其他 provider 可以接受更长的查询。
 - `urls` 分析指定页面。可以**单独使用**，也可以和 `query` 一起使用。两者同时
   提供时，先搜索，再分析 URL。
 - 最多 **20** 个 URL。
@@ -126,25 +129,30 @@ Provider 识别顺序：
    内版本号从新到旧；GPT 和 Claude 仍按版本优先，版本相同时才按能力等级排序
    （便宜的等级优先，未知等级排最后）：OpenAI 为 `luna → terra → sol → astra`，
    Claude 为 `haiku → sonnet → opus → fable`。
-5. 所有 provider 的备用模型都会按 round-robin 继续尝试，包括当前模型同一
-   provider id 下的其他模型，这样即使某个账号拒绝某个具体模型，也能换用同
-   provider 的更新模型。provider 级失败（鉴权、余额、网络、超时、请求头异常）
-   会跳过该 provider 的其余模型；模型级失败则继续尝试同 provider 的其他模型。
+5. 优先尝试尚未覆盖的 provider，再按 family 的 round-robin 尝试各 provider
+   的备用模型。provider 级失败会跳过该 provider；模型级失败（包括模型权限 403）
+   则可继续尝试同 provider 的其他模型。
 
-URL 抓取使用同样的思路，但只考虑实现了 URL 抓取的 provider。
+搜索最多发起 12 次实际尝试；URL 抓取采用同样的思路，最多发起 6 次。跳过的候选
+不占用次数。排序只适用于支持的 API：例如内置的 `opencode-go` DeepSeek 模型
+使用 `openai-completions`，本扩展不会将它们当作 Responses 搜索接口。
 
 当前模型支持搜索时通常优先当前模型，除非该 provider 或该模型正处于失败冷却期。
 缓存不会覆盖它。缓存主要用于当前模型不支持搜索时，让下一次调用直接使用之前成功
 的兼容 provider。
 
-Provider 报错时记录 attempt 并继续下一个接口。取消会立即停止。每次尝试有
+Provider 报错时记录 attempt 并继续下一个接口。DeepSeek 查询超长则直接返回错误，
+不继续尝试其他 provider，也不记录为 provider 健康故障。取消会立即停止。每次尝试有
 超时（默认 60 秒，`PI_BETTER_WEB_SEARCH_TIMEOUT_MS` 可调）。所有尝试都失败时，
 工具返回错误，消息中包含 provider 返回的错误；provider/model 路由信息保留在
-`details.attempts` 中。URL-only 调用还会报告每个 URL 的失败原因。
+`details.attempts` 中。URL-only 调用还会报告每个 URL 的失败原因。provider 错误
+响应体与发给模型的错误文本都有大小限制，避免错误内容占满上下文。
 
 Provider 级失败（鉴权、余额、网络、超时、请求头异常）和单个模型失败都会在扩展进程内
 记住。后续调用会把失败的 provider 或模型排到健康候选之后，搜索和 URL 抓取分别记录。
-冷却时间从 60 秒开始，连续失败时翻倍，最多 10 分钟；成功一次后清除。设置
+冷却时间从 60 秒开始，冷却结束后的再次尝试失败时翻倍，最多 10 分钟；同一冷却期内
+的并发失败不会延长时间。搜索成功，或至少一个 URL 抓取成功且没有 provider
+网络错误时，清除对应冷却。设置
 `PI_BETTER_WEB_SEARCH_FAILURE_COOLDOWN_MS=0` 可禁用。已经在途的并发调用仍可能同时
 尝试同一个候选。
 
@@ -226,7 +234,7 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
 - 不解析 redirect，不派生 sources。
 - 未超出大小限制时，provider 的未知字段也会保留。
 
-最终大小保护默认限制成功结果不超过 **96,000 个 Unicode code point**。
+最终大小保护默认限制结果及错误文本不超过 **96,000 个 Unicode code point**。
 未超限时保留原始字段及格式；如果只是缩进导致超限，会先压缩 JSON，
 不丢失数据，也不标记为截断。
 
@@ -239,8 +247,8 @@ Provider 数据放在 JSON 外层中返回，不做清理。示例：
 其他长字符串可能被缩短，字段或数组末尾的条目可能被省略；
 不对结果重排或总结。
 
-JSON 部分仍然合法，末尾仅追加一行 `[truncated]`。不会向模型可见的 JSON
-中添加截断元数据，也不会逐个标记缩短的字符串。由于末尾追加了这一行，
+成功结果的 JSON 部分仍然合法，末尾仅追加一行 `[truncated]`。输出大小截断不会在
+JSON 中添加元数据，也不会逐个标记字符串。由于末尾追加了这一行，
 整个文本不再是合法 JSON。确实丢失数据时，`details.truncated` 也会设为
 `true`。
 
@@ -278,8 +286,8 @@ Content-Type: application/json
 ```
 
 搜索使用 `query`、`count: 10`、`need_content: true`。DeepSeek 的 `query` 上限为
-128 个 Unicode 字符，因此超长 query 只在请求中按词边界缩短。原始 `results`
-数组原样返回，包括 `rerank_score`、`title`、`url`、`snippet`、`summary`、`content`、
+128 个 Unicode 字符，超长时会在发送请求前直接返回错误，提示缩短后重试。
+原始 `results` 数组原样返回，包括 `rerank_score`、`title`、`url`、`snippet`、`summary`、`content`、
 `site_name`、`site_icon`、`date`、`authority` 和未知字段。
 
 Fetch 发送 `{ "url": "..." }`，原样保存 `{ title, content }`。URL 最长 8192
@@ -304,7 +312,7 @@ provider；`403`/`404` 作为单个 URL 的错误上报，orchestrator 只重试
 
 ## 已验证
 
-- **116 个单元/集成测试**：暴露规则、schema 变体、provider 请求形状、SSE 解析、
+- **单元/集成测试**：暴露规则、schema 变体、provider 请求形状、SSE 解析、
   原始结果保留、fallback、缓存失效、URL 处理、截断和取消。
 - **真实 DeepSeek Search/Fetch**：使用真实 API key，返回 10 条原始搜索结果、
   summary/content、合法 fetch 页面，以及文档中的 404/非法 URL 错误。
@@ -339,7 +347,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-0.1.7.tgz`。不会自动发布。
+`dist/pi-better-web-search-0.1.9.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。

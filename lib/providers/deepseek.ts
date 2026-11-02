@@ -12,6 +12,7 @@ import {
   readJson,
   responseError,
 } from "./http.ts";
+import { QueryLengthError } from "./types.ts";
 import type {
   ProviderAdapter,
   ProviderFetchEntry,
@@ -58,35 +59,14 @@ function rethrowAbort(error: unknown, signal: AbortSignal | undefined): void {
   throw error;
 }
 
-function validateQuery(query: string): string | undefined {
-  const length = typeof query === "string" ? Array.from(query).length : 0;
+function validateQuery(query: string): void {
   if (typeof query !== "string" || query.trim().length === 0) {
-    return `Invalid query: a non-whitespace query of 1-${DEEPSEEK_MAX_QUERY_LENGTH} Unicode characters is required`;
+    throw new Error(`Invalid query: a non-whitespace query of 1-${DEEPSEEK_MAX_QUERY_LENGTH} Unicode characters is required`);
   }
-  if (length < 1 || length > DEEPSEEK_MAX_QUERY_LENGTH) {
-    return `Invalid query: length must be 1-${DEEPSEEK_MAX_QUERY_LENGTH} Unicode characters`;
+  const length = Array.from(query).length;
+  if (length > DEEPSEEK_MAX_QUERY_LENGTH) {
+    throw new QueryLengthError("DeepSeek", length, DEEPSEEK_MAX_QUERY_LENGTH);
   }
-  return undefined;
-}
-
-/**
- * DeepSeek rejects queries longer than 128 Unicode characters. Agent-generated
- * search queries routinely exceed that limit, especially when several parallel
- * calls are issued. Shorten only the provider-bound copy, preferring a word
- * boundary so the tail is not cut in the middle of a term. The original query
- * remains in the model-facing output.
- */
-export function clampDeepSeekQuery(query: string): string {
-  const characters = Array.from(query);
-  if (characters.length <= DEEPSEEK_MAX_QUERY_LENGTH) return query;
-
-  const head = characters.slice(0, DEEPSEEK_MAX_QUERY_LENGTH).join("");
-  const boundary = head.search(/\s+\S*$/u);
-  // Keep the hard cut when word-trimming would discard too much of the query.
-  if (boundary >= Math.floor(DEEPSEEK_MAX_QUERY_LENGTH / 2)) {
-    return head.slice(0, boundary).trimEnd();
-  }
-  return head.trimEnd();
 }
 
 function validateFetchUrl(url: string): string | undefined {
@@ -167,9 +147,7 @@ export const deepseekAdapter: ProviderAdapter = {
   ): Promise<ProviderSearchResult> {
     checkAbort(signal);
 
-    const effectiveQuery = clampDeepSeekQuery(query);
-    const queryError = validateQuery(effectiveQuery);
-    if (queryError) throw new Error(queryError);
+    validateQuery(query);
 
     const target = await resolveDeepSeekTarget(ctx, model);
     checkAbort(signal);
@@ -178,7 +156,7 @@ export const deepseekAdapter: ProviderAdapter = {
       method: "POST",
       headers: target.headers,
       body: JSON.stringify({
-        query: effectiveQuery,
+        query,
         count: DEEPSEEK_SEARCH_COUNT,
         need_content: DEEPSEEK_NEED_CONTENT,
       }),
@@ -227,8 +205,11 @@ export const deepseekAdapter: ProviderAdapter = {
         });
       } catch (error) {
         rethrowAbort(error, signal);
-        entries.push({ url, error: errorMessage(error) });
-        continue;
+        const providerError = errorMessage(error);
+        entries.push({ url, error: providerError });
+        // This request reaches the provider endpoint, so a transport failure is
+        // not specific to the target URL. Preserve earlier successes and stop.
+        return { entries, providerError };
       }
       checkAbort(signal);
 

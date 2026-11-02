@@ -141,6 +141,24 @@ test("Ollama fetch posts each URL and preserves raw title/content/links", async 
   });
 });
 
+test("Ollama preserves earlier URL successes when its provider connection fails", async (t) => {
+  const urls = ["https://example.com/one", "https://example.com/two", "https://example.com/three"];
+  const ctx = createMockCtx({ model: ollamaCloudModel() });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    if (calls === 1) return jsonResponse({ title: "first" });
+    throw new TypeError("fetch failed");
+  });
+  const result = await ollamaAdapter.fetch(ctx, ctx.model, urls, undefined, undefined);
+  assert.equal(calls, 2);
+  assert.equal(result.providerError, "fetch failed");
+  assert.deepEqual(result.entries, [
+    { url: urls[0], data: { title: "first" } },
+    { url: urls[1], error: "fetch failed" },
+  ]);
+});
+
 test("Ollama fetch reports per-URL failures in entries", async (t) => {
   const urls = ["https://example.com/ok", "https://example.com/missing", "https://example.com/gone"];
   const responses = [

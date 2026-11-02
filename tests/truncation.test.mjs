@@ -444,6 +444,12 @@ test("configured limits are validated at module load", async () => {
         assert.doesNotThrow(() => JSON.parse(text.slice(0, -markerLine.length)));
       }
       assert.equal(result.details.truncated, true);
+      const error = module.formatError("😀".repeat(expected + 20), { attempts: [] });
+      assert.ok(chars(error.content[0].text) <= expected);
+      assert.equal(error.details.truncated, true);
+      const unprefixed = module.formatError("😀".repeat(expected + 20), { attempts: [] }, "");
+      assert.ok(chars(unprefixed.content[0].text) <= expected);
+      assert.equal(unprefixed.details.truncated, true);
     }
   } finally {
     if (original === undefined) delete process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS;

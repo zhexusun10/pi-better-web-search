@@ -43,10 +43,18 @@ function recordFailure(
   provider: string,
   message: string,
   now: number,
+  attemptStartedAt: number,
 ): void {
   const previous = failures.get(key);
-  const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
   const base = failureCooldownMs();
+  if (base === 0) {
+    failures.delete(key);
+    return;
+  }
+  // In-flight calls, or last-resort attempts started before expiry, are not a
+  // new probe even when they finish after the previous cooldown has expired.
+  if (previous && (previous.retryAt > now || attemptStartedAt < previous.retryAt)) return;
+  const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
   const exponent = Math.min(consecutiveFailures - 1, 10);
   const cooldown = Math.min(base * 2 ** exponent, MAX_FAILURE_COOLDOWN_MS);
   failures.set(key, {
@@ -63,8 +71,9 @@ export function recordProviderFailure(
   provider: string,
   message: string,
   now = Date.now(),
+  attemptStartedAt = now,
 ): void {
-  recordFailure(providerFailureKey(phase, provider), phase, provider, message, now);
+  recordFailure(providerFailureKey(phase, provider), phase, provider, message, now, attemptStartedAt);
 }
 
 /** Remember a single model failure without cooling down its whole provider. */
@@ -74,8 +83,9 @@ export function recordModelFailure(
   model: string,
   message: string,
   now = Date.now(),
+  attemptStartedAt = now,
 ): void {
-  recordFailure(modelFailureKey(phase, provider, model), phase, provider, message, now);
+  recordFailure(modelFailureKey(phase, provider, model), phase, provider, message, now, attemptStartedAt);
 }
 
 export function clearProviderFailure(phase: ProviderPhase, provider: string): void {
@@ -91,6 +101,7 @@ export function isProviderCoolingDown(
   provider: string,
   now = Date.now(),
 ): boolean {
+  if (failureCooldownMs() === 0) return false;
   const failure = failures.get(providerFailureKey(phase, provider));
   return !!failure && failure.retryAt > now;
 }
@@ -101,6 +112,7 @@ export function isModelCoolingDown(
   model: string,
   now = Date.now(),
 ): boolean {
+  if (failureCooldownMs() === 0) return false;
   const failure = failures.get(modelFailureKey(phase, provider, model));
   return !!failure && failure.retryAt > now;
 }

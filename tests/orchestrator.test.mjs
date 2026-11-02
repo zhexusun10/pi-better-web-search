@@ -12,7 +12,9 @@ import {
 } from "./helpers.mjs";
 
 import { readCache, writeCache, fingerprintAvailableModels } from "../lib/cache.ts";
+import { FETCH_ATTEMPT_CAP, getFetchCandidates, getSearchCandidates, resolveResolutionContext, SEARCH_ATTEMPT_CAP } from "../lib/candidates.ts";
 import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
+import { isProviderCoolingDown, recordProviderFailure } from "../lib/health.ts";
 import { ADAPTERS } from "../lib/providers/index.ts";
 import { parseWebSearchInput, runWebSearch, isProviderWideFailure } from "../lib/search.ts";
 
@@ -203,6 +205,111 @@ test("a model-specific search error falls back to a sibling model in the same fa
   });
 });
 
+test("a provider-wide failure reaches another provider despite many current-provider siblings", async () => {
+  const current = openaiResponsesModel({ id: "gpt-6.1" });
+  const siblings = Array.from({ length: 20 }, (_, index) =>
+    openaiResponsesModel({ id: `gpt-6.${index + 2}` }),
+  );
+  const codex = openaiResponsesModel({ id: "gpt-5.1", provider: "openai-codex", api: "openai-codex-responses" });
+  const ctx = createMockCtx({ model: current, availableModels: [current, ...siblings, codex] });
+  await withTempCache(async () => {
+    const calls = [];
+    await withAdapterPatch([[ADAPTERS.openai, "search", async (_ctx, model) => {
+      calls.push(model.provider);
+      if (model.provider === "openai") throw new Error("HTTP 401 Unauthorized");
+      return { results: [{ title: "codex" }] };
+    }]], async () => {
+      const result = await runWebSearch({ query: "test" }, ctx);
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(calls, ["openai", "openai-codex"]);
+    });
+  });
+});
+
+test("cooldown is applied before the attempt cap to the entire discovery set", async () => {
+  const models = Array.from({ length: 20 }, (_, index) =>
+    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `provider-${index}` }),
+  );
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
+  await withTempCache(async () => {
+    const initiallySelected = getSearchCandidates(resolveResolutionContext(ctx));
+    assert.equal(initiallySelected.length, SEARCH_ATTEMPT_CAP);
+    const cooling = new Set(initiallySelected.map((candidate) => candidate.model.provider));
+    for (const provider of cooling) recordProviderFailure("search", provider, "HTTP 500");
+    const calls = [];
+    await withAdapterPatch([[ADAPTERS.openai, "search", async (_ctx, model) => {
+      calls.push(model.provider);
+      return { results: [] };
+    }]], async () => {
+      const result = await runWebSearch({ query: "test" }, ctx);
+      assert.equal(result.isError, undefined);
+      assert.equal(calls.length, 1);
+      assert.equal(cooling.has(calls[0]), false);
+    });
+  });
+});
+
+test("actual search attempts are capped even with a larger discovery set", async () => {
+  const models = Array.from({ length: 20 }, (_, index) =>
+    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `provider-${index}` }),
+  );
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
+  await withTempCache(async () => {
+    let calls = 0;
+    await withAdapterPatch([[ADAPTERS.openai, "search", async () => {
+      calls += 1;
+      throw new Error("unsupported model");
+    }]], async () => {
+      const result = await runWebSearch({ query: "test" }, ctx);
+      assert.equal(result.isError, true);
+      assert.equal(calls, SEARCH_ATTEMPT_CAP);
+      assert.equal(result.details.attempts.length, SEARCH_ATTEMPT_CAP);
+    });
+  });
+});
+
+test("fetch cooldown is applied before the attempt cap to all candidates", async () => {
+  const models = Array.from({ length: 12 }, (_, index) =>
+    googleModel({ id: `gemini-3.${index}-flash`, provider: `google-${index}` }),
+  );
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
+  await withTempCache(async () => {
+    const first = getFetchCandidates(resolveResolutionContext(ctx));
+    const cooling = new Set(first.map((candidate) => candidate.model.provider));
+    assert.equal(cooling.size, FETCH_ATTEMPT_CAP);
+    for (const provider of cooling) recordProviderFailure("fetch", provider, "HTTP 500");
+    const calls = [];
+    await withAdapterPatch([[ADAPTERS.google, "fetch", async (_ctx, model, urls) => {
+      calls.push(model.provider);
+      return { entries: urls.map((url) => ({ url, data: { ok: true } })) };
+    }]], async () => {
+      const result = await runWebSearch({ urls: ["https://example.com/page"] }, ctx);
+      assert.equal(result.isError, undefined);
+      assert.equal(calls.length, 1);
+      assert.equal(cooling.has(calls[0]), false);
+    });
+  });
+});
+
+test("actual fetch attempts are capped even with a larger discovery set", async () => {
+  const models = Array.from({ length: 12 }, (_, index) =>
+    googleModel({ id: `gemini-3.${index}-flash`, provider: `google-${index}` }),
+  );
+  const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
+  await withTempCache(async () => {
+    let calls = 0;
+    await withAdapterPatch([[ADAPTERS.google, "fetch", async () => {
+      calls += 1;
+      throw new Error("unsupported model");
+    }]], async () => {
+      const result = await runWebSearch({ urls: ["https://example.com/page"] }, ctx);
+      assert.equal(result.isError, true);
+      assert.equal(calls, FETCH_ATTEMPT_CAP);
+      assert.equal(result.details.attempts.length, FETCH_ATTEMPT_CAP);
+    });
+  });
+});
+
 test("a provider-wide search error does not retry sibling models from the same provider", async () => {
   const primary = openaiResponsesModel({ id: "gpt-5.1" });
   const sibling = openaiResponsesModel({ id: "gpt-4.1" });
@@ -276,6 +383,13 @@ test("provider-wide failures are classified separately from model-specific ones"
     false,
   );
   assert.equal(isProviderWideFailure("Google API error (404): model not found"), false);
+  assert.equal(isProviderWideFailure("HTTP 403 Forbidden: You do not have access to the model gpt-6.1"), false);
+  assert.equal(isProviderWideFailure("HTTP 403 Forbidden: Access denied", { status: 403, code: "model_not_allowed" }), false);
+  assert.equal(isProviderWideFailure("HTTP 403 Forbidden: Access denied to model gpt-6"), false);
+  assert.equal(isProviderWideFailure("HTTP 403 Forbidden: Access to model gpt-6 was denied"), false);
+  assert.equal(isProviderWideFailure("HTTP 403 Forbidden: insufficient balance for this model"), true);
+  assert.equal(isProviderWideFailure("Access denied", { status: 403 }), true);
+  assert.equal(isProviderWideFailure("HTTP 401 Unauthorized: model not allowed"), true);
   assert.equal(
     isProviderWideFailure("OpenAI API error (400): max_tokens 500 is too large for this model"),
     false,
@@ -310,6 +424,59 @@ test("search falls back to the next candidate and records the failed attempt", a
         assert.match(result.details.attempts[0].message, /deepseek unavailable/);
       },
     );
+  });
+});
+
+test("fetch transport errors preserve partial results and cool the provider for later calls", async (t) => {
+  const deepseek = deepseekModel();
+  const google = googleModel();
+  const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek, google] });
+  const urls = ["https://example.com/one", "https://example.com/two", "https://example.com/three"];
+  await withTempCache(async () => {
+    const calls = [];
+    t.mock.method(globalThis, "fetch", async (_url, init) => {
+      const url = JSON.parse(init.body).url;
+      calls.push(`deepseek:${url}`);
+      if (url === urls[0]) return Response.json({ title: "first" });
+      throw new TypeError("fetch failed");
+    });
+    await withAdapterPatch([[ADAPTERS.google, "fetch", async (_ctx, _model, requested) => {
+      calls.push(`google:${requested.join(",")}`);
+      return { entries: requested.map((url) => ({ url, data: { title: "fallback" } })) };
+    }]], async () => {
+      const first = await runWebSearch({ urls }, ctx);
+      assert.equal(first.isError, undefined);
+      const output = JSON.parse(first.content[0].text);
+      assert.equal(output.fetched[0].data.title, "first");
+      assert.equal(output.fetched[1].data.title, "fallback");
+      assert.equal(output.fetched[2].data.title, "fallback");
+      assert.deepEqual(calls, [
+        `deepseek:${urls[0]}`,
+        `deepseek:${urls[1]}`,
+        `google:${urls[1]},${urls[2]}`,
+      ]);
+      assert.equal(isProviderCoolingDown("fetch", "deepseek"), true);
+      assert.equal(first.details.attempts[0].message, "fetch failed");
+      calls.length = 0;
+      const next = await runWebSearch({ urls: ["https://example.com/next"] }, ctx);
+      assert.equal(next.isError, undefined);
+      assert.deepEqual(calls, ["google:https://example.com/next"]);
+    });
+  });
+});
+
+test("URL-specific failures do not clear an existing provider cooldown", async () => {
+  const deepseek = deepseekModel();
+  const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek] });
+  await withTempCache(async () => {
+    recordProviderFailure("fetch", "deepseek", "fetch failed");
+    await withAdapterPatch([[ADAPTERS.deepseek, "fetch", async (_ctx, _model, urls) => ({
+      entries: urls.map((url) => ({ url, error: "blocked" })),
+    })]], async () => {
+      const result = await runWebSearch({ urls: ["https://example.com/blocked"] }, ctx);
+      assert.equal(result.isError, true);
+      assert.equal(isProviderCoolingDown("fetch", "deepseek"), true);
+    });
   });
 });
 

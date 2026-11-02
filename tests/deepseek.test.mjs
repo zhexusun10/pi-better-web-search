@@ -6,10 +6,10 @@ import {
   DEEPSEEK_MAX_QUERY_LENGTH,
   DEEPSEEK_NEED_CONTENT,
   DEEPSEEK_SEARCH_COUNT,
-  clampDeepSeekQuery,
   deepseekAdapter,
   resolveDeepSeekToolUrl,
 } from "../lib/providers/deepseek.ts";
+import { QueryLengthError } from "../lib/providers/types.ts";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -122,30 +122,61 @@ test("DeepSeek rejects an empty query before fetching", async (t) => {
   assert.equal(fetch.mock.callCount(), 0);
 });
 
-test("DeepSeek shortens overlong queries at a word boundary before fetching", async (t) => {
-  const prefix = "site:example.com ";
-  const longQuery = `${prefix}${"alpha ".repeat(30)}omega`;
-  const requests = [];
-  const ctx = createMockCtx({ model: deepseekModel(), auth: { ok: true, apiKey: "test-key" } });
-
+test("DeepSeek accepts queries of exactly 128 Unicode characters unchanged", async (t) => {
+  const queries = ["x".repeat(128), "😀".repeat(128)];
+  const sent = [];
+  const ctx = createMockCtx({ model: deepseekModel() });
   t.mock.method(globalThis, "fetch", async (_url, init) => {
-    requests.push(JSON.parse(init.body));
+    sent.push(JSON.parse(init.body).query);
     return jsonResponse({ results: [] });
   });
+  for (const query of queries) {
+    assert.deepEqual(await deepseekAdapter.search(ctx, ctx.model, query, undefined), { results: [] });
+  }
+  assert.deepEqual(sent, queries);
+});
 
-  await deepseekAdapter.search(ctx, ctx.model, longQuery, undefined);
+test("DeepSeek rejects overlong Unicode queries before auth or network", async (t) => {
+  const fetch = t.mock.method(globalThis, "fetch", async () => assert.fail("must not fetch"));
+  let authCalls = 0;
+  const ctx = createMockCtx({ model: deepseekModel(), auth: async () => { authCalls += 1; } });
+  for (const query of ["x".repeat(129), "😀".repeat(129)]) {
+    await assert.rejects(
+      () => deepseekAdapter.search(ctx, ctx.model, query, undefined),
+      (error) => {
+        assert.ok(error instanceof QueryLengthError);
+        assert.equal(error.actualLength, 129);
+        assert.equal(error.maxLength, DEEPSEEK_MAX_QUERY_LENGTH);
+        assert.equal(error.provider, "DeepSeek");
+        assert.match(error.message, /^Search query is too long/);
+        assert.doesNotMatch(error.message, /deepseek/i);
+        assert.match(error.message, /129 Unicode characters/);
+        assert.match(error.message, /maximum is 128 Unicode characters/);
+        assert.match(error.message, /Shorten the query and retry/);
+        return true;
+      },
+    );
+  }
+  assert.equal(authCalls, 0);
+  assert.equal(fetch.mock.callCount(), 0);
+});
 
-  assert.equal(requests.length, 1);
-  const sent = requests[0].query;
-  assert.ok(Array.from(sent).length <= DEEPSEEK_MAX_QUERY_LENGTH);
-  assert.ok(sent.startsWith(prefix));
-  assert.equal(sent.endsWith("alpha"), true);
-  assert.equal(sent, sent.trimEnd());
-  assert.equal(clampDeepSeekQuery("short query"), "short query");
-  assert.equal(
-    clampDeepSeekQuery("x".repeat(DEEPSEEK_MAX_QUERY_LENGTH)),
-    "x".repeat(DEEPSEEK_MAX_QUERY_LENGTH),
-  );
+test("DeepSeek preserves earlier URL successes when its provider connection fails", async (t) => {
+  const urls = ["https://example.com/one", "https://example.com/two", "https://example.com/three"];
+  const ctx = createMockCtx({ model: deepseekModel() });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    if (calls === 1) return jsonResponse({ title: "first" });
+    throw new TypeError("fetch failed");
+  });
+  const result = await deepseekAdapter.fetch(ctx, ctx.model, urls, undefined, undefined);
+  assert.equal(calls, 2);
+  assert.equal(result.providerError, "fetch failed");
+  assert.deepEqual(result.entries, [
+    { url: urls[0], data: { title: "first" } },
+    { url: urls[1], error: "fetch failed" },
+  ]);
 });
 
 test("DeepSeek fetch posts one request per URL and keeps raw fetch payloads", async (t) => {
