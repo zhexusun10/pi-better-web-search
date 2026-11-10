@@ -29,7 +29,7 @@ Then start a new pi process, or run `/reload` in an existing session.
 GitHub and local installations also work:
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.10
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.11
 pi install ./path/to/pi-better-web-search
 ```
 
@@ -179,9 +179,12 @@ remembered compatible provider immediately on later calls.
 
 If a provider errors, the extension records the attempt and moves to the next
 interface. An overlong query rejected by DeepSeek instead returns immediately
-without trying another provider or updating its health state. Aborts stop immediately. Each attempt has a timeout (60 seconds by
-default, configurable with `PI_BETTER_WEB_SEARCH_TIMEOUT_MS`). If every attempt
-fails, the tool returns an error whose message contains the provider errors.
+without trying another provider or updating its health state. Aborts stop
+immediately. Each search or URL fetch attempt times out after 120 seconds by
+default; explicit provider errors trigger fallback immediately without waiting
+for the timeout. Set `PI_BETTER_WEB_SEARCH_TIMEOUT_MS` to override the per-attempt
+timeout. If every attempt fails, the tool returns an error whose message contains
+the provider errors.
 Provider/model routing remains in `details.attempts`. For a URL-only call, the
 error also reports the per-URL failures. Provider error bodies and model-facing
 error text are bounded to prevent an oversized error from filling the context.

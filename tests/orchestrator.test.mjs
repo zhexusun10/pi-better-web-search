@@ -3,12 +3,15 @@ import test from "node:test";
 
 import {
   createMockCtx,
+  createModel,
   deepseekModel,
   googleModel,
   ollamaCloudModel,
   openaiResponsesModel,
   unsupportedLocalModel,
+  withEnv,
   withTempCache,
+  xaiModel,
 } from "./helpers.mjs";
 
 import { readCache, writeCache, fingerprintAvailableModels } from "../lib/cache.ts";
@@ -32,6 +35,81 @@ async function withAdapterPatch(patches, fn) {
     }
   }
 }
+
+test("search and URL fetch attempts default to 120 seconds and allow an explicit override", async (t) => {
+  const timeouts = [];
+  t.mock.method(AbortSignal, "timeout", (ms) => {
+    timeouts.push(ms);
+    return new AbortController().signal;
+  });
+  const codex = createModel({ provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
+  const gateway = openaiResponsesModel({ provider: "github-copilot" });
+  const cases = [
+    [openaiResponsesModel(), ADAPTERS.openai, 120_000],
+    [codex, ADAPTERS.openai, 120_000],
+    [gateway, ADAPTERS.openai, 120_000],
+    [xaiModel(), ADAPTERS.xai, 120_000],
+    [deepseekModel(), ADAPTERS.deepseek, 120_000],
+  ];
+  await withEnv({ PI_BETTER_WEB_SEARCH_TIMEOUT_MS: undefined }, async () => {
+    for (const [model, adapter, expected] of cases) {
+      await withTempCache(() => withAdapterPatch([[adapter, "search", async () => ({ results: [] })]], async () => {
+        const result = await runWebSearch({ query: "test" }, createMockCtx({ model }));
+        assert.equal(result.isError, undefined);
+        assert.equal(timeouts.pop(), expected, model.provider);
+      }));
+    }
+    const google = googleModel();
+    await withTempCache(() => withAdapterPatch([[ADAPTERS.google, "fetch", async (_ctx, _model, urls) => ({ entries: urls.map(url => ({ url, data: {} })) })]], async () => {
+      await runWebSearch({ urls: ["https://example.com/"] }, createMockCtx({ model: google, availableModels: [google] }));
+      assert.equal(timeouts.pop(), 120_000);
+    }));
+  });
+  await withEnv({ PI_BETTER_WEB_SEARCH_TIMEOUT_MS: "45000" }, () => withTempCache(() => withAdapterPatch(
+    [[ADAPTERS.openai, "search", async () => ({ results: [] })]],
+    async () => {
+      await runWebSearch({ query: "test" }, createMockCtx({ model: openaiResponsesModel() }));
+      assert.equal(timeouts.pop(), 45_000);
+    },
+  )));
+});
+
+test("provider errors trigger fallback immediately without waiting for timeout", async (t) => {
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  const openai = openaiResponsesModel();
+  const deepseek = deepseekModel();
+  await withTempCache(() => withAdapterPatch([
+    [ADAPTERS.openai, "search", async () => { throw new Error("OpenAI API error (401): unauthorized"); }],
+    [ADAPTERS.deepseek, "search", async () => ({ results: [{ title: "fallback" }] })],
+  ], async () => {
+    const result = await runWebSearch({ query: "test" }, createMockCtx({ model: openai, availableModels: [deepseek] }));
+    assert.equal(result.isError, undefined);
+    assert.equal(result.details.provider, "deepseek");
+    assert.match(result.details.attempts[0].message, /unauthorized/i);
+  }));
+});
+
+test("OpenAI timeout cancels the attempt and falls back to another provider", async (t) => {
+  let count = 0;
+  t.mock.method(AbortSignal, "timeout", () => {
+    const controller = new AbortController();
+    if (count++ === 0) queueMicrotask(() => controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")));
+    return controller.signal;
+  });
+  const openai = openaiResponsesModel();
+  const deepseek = deepseekModel();
+  await withTempCache(() => withAdapterPatch([
+    [ADAPTERS.openai, "search", async (_ctx, _model, _query, signal) => {
+      await new Promise((resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    }],
+    [ADAPTERS.deepseek, "search", async () => ({ results: [{ title: "fallback" }] })],
+  ], async () => {
+    const result = await runWebSearch({ query: "test" }, createMockCtx({ model: openai, availableModels: [deepseek] }));
+    assert.equal(result.isError, undefined);
+    assert.equal(result.details.provider, "deepseek");
+    assert.match(result.details.attempts[0].message, /timeout/i);
+  }));
+});
 
 test("input parsing trims queries, preserves operators, and validates URLs", () => {
   assert.deepEqual(parseWebSearchInput({ query: "  cats AND dogs  " }), {

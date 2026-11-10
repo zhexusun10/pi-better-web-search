@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11
+
+- Increase the default timeout to 120 seconds per search and URL fetch attempt
+  for all providers. Provider errors still trigger fallback immediately, and
+  `PI_BETTER_WEB_SEARCH_TIMEOUT_MS` can override the default.
+
 ## 0.1.10
 
 - Verify against Pi 1.5.2 and document support for the OpenAI ChatGPT OAuth

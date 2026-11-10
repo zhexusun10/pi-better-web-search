@@ -22,7 +22,7 @@ pi install npm:pi-better-web-search
 也可以从 GitHub 或本地安装：
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.10
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.11
 pi install ./path/to/pi-better-web-search
 ```
 
@@ -147,8 +147,9 @@ Provider 识别顺序：
 的兼容 provider。
 
 Provider 报错时记录 attempt 并继续下一个接口。DeepSeek 查询超长则直接返回错误，
-不继续尝试其他 provider，也不记录为 provider 健康故障。取消会立即停止。每次尝试有
-超时（默认 60 秒，`PI_BETTER_WEB_SEARCH_TIMEOUT_MS` 可调）。所有尝试都失败时，
+不继续尝试其他 provider，也不记录为 provider 健康故障。取消会立即停止。搜索和 URL
+抓取的每次尝试默认超时 120 秒；provider 直接报错时立即 fallback，不等待超时。
+`PI_BETTER_WEB_SEARCH_TIMEOUT_MS` 可覆盖默认值。所有尝试都失败时，
 工具返回错误，消息中包含 provider 返回的错误；provider/model 路由信息保留在
 `details.attempts` 中。URL-only 调用还会报告每个 URL 的失败原因。provider 错误
 响应体与发给模型的错误文本都有大小限制，避免错误内容占满上下文。

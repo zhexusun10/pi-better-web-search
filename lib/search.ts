@@ -31,7 +31,7 @@ import {
 import { QueryLengthError } from "./providers/types.ts";
 import { MAX_URLS } from "./schema.ts";
 
-export const DEFAULT_ATTEMPT_TIMEOUT_MS = 60_000;
+export const DEFAULT_ATTEMPT_TIMEOUT_MS = 120_000;
 
 export interface UrlValidationError {
   url: string;
