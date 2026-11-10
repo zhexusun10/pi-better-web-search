@@ -10,7 +10,7 @@ and returns provider data as-is.
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/pi-better-web-search)](https://www.npmjs.com/package/pi-better-web-search)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Pi 1.3](https://img.shields.io/badge/Pi-1.3-blue.svg)](https://pi.dev)
+[![Pi 1.5.2](https://img.shields.io/badge/Pi-1.5.2-blue.svg)](https://pi.dev)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
 
 [简体中文](docs/README.zh-CN.md) · [Architecture](docs/architecture.md) · [Providers](docs/providers.md) · [Testing](docs/testing.md) · [Source](extensions/index.ts)
@@ -29,14 +29,14 @@ Then start a new pi process, or run `/reload` in an existing session.
 GitHub and local installations also work:
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.9
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.10
 pi install ./path/to/pi-better-web-search
 ```
 
 > Do not load this package together with `pi-web-search`. Both register a tool
 > named `web_search`, and the second registration replaces the first.
 
-Requirements: **pi 1.3+** and **Node.js 22.19+**.
+Requirements: **pi 1.3+** and **Node.js 22.19+**. Tested with **pi 1.5.2**.
 
 ## What it fixes
 
@@ -119,6 +119,12 @@ invalid URLs alongside valid work are reported in the `fetched` entries.
 | 9 | **OpenCode** | Yes | No | Responses routing with Pi session tracking headers |
 | 10 | **xAI (Grok)** | Yes | No | Grok dialect Responses API (`web_search_call.action.sources`) |
 | * | **Anthropic Messages** | Yes | No | Messages API `web_search_20260209` tool & Claude Code OAuth |
+
+OpenAI search supports both Pi's **OpenAI (ChatGPT subscription) / Sign in with
+ChatGPT** OAuth login and an OpenAI API key, as well as the separate legacy
+**OpenAI Codex** OAuth login. Model and web search availability still depend
+on the account and service. Pi virtual models (`pi-virtual`) are not directly
+supported; automatic fallback can still use an authenticated concrete model.
 
 URL analysis is only exposed when at least one usable interface supports it.
 For example, a current OpenAI model with only OpenAI credentials gets a

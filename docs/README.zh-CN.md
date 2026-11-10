@@ -22,14 +22,14 @@ pi install npm:pi-better-web-search
 也可以从 GitHub 或本地安装：
 
 ```bash
-pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.9
+pi install git:github.com/zhexusun10/pi-better-web-search@v0.1.10
 pi install ./path/to/pi-better-web-search
 ```
 
 > 不要和 `pi-web-search` 同时加载。两者都注册 `web_search`，后注册的会覆盖
 > 先注册的。
 
-要求：**pi 1.3+**，**Node.js 22.19+**。
+要求：**pi 1.3+**，**Node.js 22.19+**。已通过 **pi 1.5.2** 依赖测试。
 
 ## 它解决什么问题
 
@@ -100,6 +100,11 @@ provider 都失败时，工具返回错误（`isError: true`），不会静默�
 | 9 | **OpenCode** | 是 | 否 | 携带 Pi 会话追踪请求头的 Responses 搜索 |
 | 10 | **xAI (Grok)** | 是 | 否 | 原生 Grok 方言 Responses API（`web_search_call.action.sources`） |
 | * | **Anthropic Messages** | 是 | 否 | Messages API `web_search_20260209` 工具及 Claude Code OAuth 凭据 |
+
+OpenAI 搜索支持 Pi 的 **OpenAI（ChatGPT 订阅）/ Sign in with ChatGPT**
+OAuth 登录、OpenAI API Key，以及独立的旧版 **OpenAI Codex** OAuth 登录。
+模型和搜索工具能否使用仍取决于账号及服务。Pi 虚拟模型（`pi-virtual`）
+暂不直接支持，但可自动回退到其他已认证的具体模型。
 
 只有至少一个可用接口支持 URL 分析时，`urls` 才会暴露。例如：当前模型是
 OpenAI 且只有 OpenAI 凭据时，schema 只有 `query`；同一会话只要还有

@@ -24,6 +24,9 @@ served by the native DeepSeek provider or Ollama Cloud. In particular, the
 built-in `opencode-go` DeepSeek models use `openai-completions`; brand ranking
 does not make them Responses-compatible or expose them as search candidates.
 A local Ollama daemon is not supported; Ollama Cloud uses the hosted REST API.
+Pi virtual models (`pi-virtual`) are not directly supported: their routed
+concrete model is not known to this extension. The normal fallback can still
+select another authenticated concrete model.
 
 ## DeepSeek
 
@@ -150,9 +153,18 @@ Supported APIs:
 - `azure-openai-responses`
 - `openai-codex-responses`
 
+The `openai` provider uses the Responses API with either pi's **Sign in with
+ChatGPT** OAuth credentials or an OpenAI API key (`OPENAI_API_KEY` or pi's
+registry). Pi resolves and refreshes OAuth credentials; the resulting access
+token is sent as a Bearer token. `openai-codex` uses a separate legacy ChatGPT
+OAuth flow and Codex endpoint. Search availability depends on the account,
+subscription, model and OpenAI service.
+
 The request uses `tools: [{ "type": "web_search" }]`, `stream: true`, and
-`store: false`. Endpoint resolution appends `/responses`, or
-`/codex/responses` for Codex models. Codex requests add the account id header,
+`store: false`. For reasoning models, the request uses the lowest effort
+supported by the model metadata, independently of the conversation's thinking
+level; native xAI does not send this setting. Endpoint resolution appends
+`/responses`, or `/codex/responses` for Codex models. Codex requests add the account id header,
 `originator: codex_cli_rs`, instructions, low verbosity, required tool choice,
 and parallel tool calls.
 

@@ -344,8 +344,9 @@ test("a different provider id in the current model's family is still tried", asy
 
 test("real OpenAI siblings cannot crowd Codex out of the capped candidates", async () => {
   const models = getBuiltinModels("openai").filter((model) => model.api === "openai-responses");
-  const current = models.find((model) => model.id === "gpt-6.1-sol");
-  const codex = getBuiltinModels("openai-codex").find((model) => model.id === "gpt-5.3-codex-spark");
+  const current = models[0];
+  const codex = getBuiltinModels("openai-codex").find((model) => model.api === "openai-codex-responses");
+  assert.ok(models.length >= SEARCH_ATTEMPT_CAP, "catalog must contain enough OpenAI siblings to test the cap");
   assert.ok(current && codex);
   await withResolution(ctxFor(current, [...models, codex]), undefined, (resolution) => {
     const candidates = getSearchCandidates(resolution);

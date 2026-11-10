@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, type Api, type Model } from "@earendil-works/pi-ai";
 import {
   buildRequestHeaders,
   getHeader,
@@ -152,6 +152,14 @@ async function searchResponses(
     stream: true,
     store: false,
   };
+  // Search is independent of the conversation's thinking setting. Use the
+  // lowest supported effort to avoid unnecessary latency and token usage.
+  // Native xAI does not accept the same reasoning controls.
+  if (family !== "xai" && model.reasoning) {
+    const level = clampThinkingLevel(model, "off");
+    const mapped = model.thinkingLevelMap?.[level];
+    if (mapped !== null) body.reasoning = { effort: mapped ?? (level === "off" ? "none" : level) };
+  }
   if (isCodex) {
     body.instructions = "Answer the user's request using web search when needed.";
     body.text = { verbosity: "low" };

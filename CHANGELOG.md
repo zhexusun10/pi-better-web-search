@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10
+
+- Verify against Pi 1.5.2 and document support for the OpenAI ChatGPT OAuth
+  login as well as OpenAI API keys and legacy Codex OAuth.
+- Use the lowest model-supported reasoning effort for OpenAI Responses search,
+  independently of the conversation's thinking level, as in pi-web-search.
+- Document that Pi virtual models are not directly supported.
+
 ## 0.1.9
 
 - Preserve provider diversity and apply cooldowns before limiting actual search

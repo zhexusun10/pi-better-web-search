@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 
 import { openaiAdapter, xaiAdapter } from "../lib/providers/openai.ts";
 import {
@@ -154,6 +156,49 @@ test("OpenAI Responses sends the raw web search request and returns raw provider
   assert.deepEqual(result.searchQueries, ["OpenAI docs", "OpenAI docs", "OpenAI docs"]);
   assert.equal(Object.hasOwn(result, "sources"), false);
   assert.equal(result.results[0].action.sources.length, 2);
+});
+
+test("Pi OpenAI and legacy Codex OAuth credentials reach their respective search endpoints", async (t) => {
+  let request;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    request = { url, headers: init.headers, body: JSON.parse(init.body) };
+    return makeResponse([{ data: completed([searchCall("ws_oauth", "query")]) }]);
+  });
+  const credential = (access) => ({ type: "oauth", access, refresh: "refresh", expires: Date.now() + 3600000, accountId: "acct_test" });
+  const cases = [
+    [openaiProvider(), openaiResponsesModel(), "chatgpt-access-token", "https://api.openai.com/v1/responses"],
+    [openaiCodexProvider(), createModel({ id: "gpt-5.5", provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" }), OPENAI_CODEX_TOKEN, "https://chatgpt.com/backend-api/codex/responses"],
+  ];
+  for (const [provider, model, token, url] of cases) {
+    const auth = await provider.auth.oauth.toAuth(credential(token));
+    await openaiAdapter.search(createMockCtx({ model, auth: { ok: true, ...auth } }), model, "query", undefined);
+    assert.equal(request.url, url);
+    assert.equal(request.headers.authorization, `Bearer ${token}`);
+    assert.deepEqual(request.body.tools, [{ type: "web_search" }]);
+    if (model.provider === "openai-codex") assert.equal(request.headers["chatgpt-account-id"], "acct_test");
+    else assert.equal(request.headers["chatgpt-account-id"], undefined);
+  }
+});
+
+test("Responses reasoning uses the model's lowest supported effort except for native xAI", async (t) => {
+  let body;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    body = JSON.parse(init.body);
+    return makeResponse([{ data: completed([searchCall("ws", "query")]) }]);
+  });
+
+  const cases = [
+    [openaiResponsesModel({ reasoning: true, thinkingLevelMap: { off: "none" } }), openaiAdapter, { effort: "none" }],
+    [openaiResponsesModel({ reasoning: true, thinkingLevelMap: { off: null, minimal: null } }), openaiAdapter, { effort: "low" }],
+    [openaiResponsesModel({ reasoning: true, thinkingLevelMap: Object.fromEntries(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map(level => [level, null])) }), openaiAdapter, undefined],
+    [openaiResponsesModel({ reasoning: false }), openaiAdapter, undefined],
+    [xaiModel({ reasoning: true }), xaiAdapter, undefined],
+    [openaiResponsesModel({ id: "grok-test", reasoning: true }), openaiAdapter, { effort: "none" }],
+  ];
+  for (const [model, adapter, expected] of cases) {
+    await adapter.search(createMockCtx({ model }), model, "query", undefined);
+    assert.deepEqual(body.reasoning, expected, `${model.provider}/${model.id}`);
+  }
 });
 
 test("stream search items replace the previous raw item for the same call id", async (t) => {
