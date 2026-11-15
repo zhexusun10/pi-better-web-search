@@ -162,6 +162,12 @@ URL 失败写入 `fetched[].error`。只有请求结构非法或没有任何成�
 
 ## 第三方专用 Search API
 
+**已通过 pi 自带 `/login` 登录官方 DeepSeek，或在 pi 的 `models.json` 配置其 key？
+无需重复登录扩展。** 插件直接复用 `deepseek` provider 的凭据调用原生 Search/Fetch，
+即使可用对话模型列表为空或没有 `flash` 模型，也会显示在搜索/抓取首选菜单中。
+运行 `/web-search-provider fetch` 或 `/web-search-provider search` 即可选择。
+不调用推理模型，也不复制 key；第三方网关仅提供 DeepSeek 模型不等于官方 API。
+
 直接在 pi 终端运行：
 
 ```text
@@ -269,8 +275,10 @@ URL 抓取只重试未成功的 URL；输入校验和取消行为保持不变。
 ## 自动选择与 fallback
 
 模型接口严格限定轻量档位：**OpenAI 只用 `luna`，Claude 只用 `haiku`，DeepSeek 和其他
-品牌只用 `flash`**。这是名称白名单，不是实时价格判断。搜索、URL 分析、当前模型、
-缓存和模型 fallback 都遵守此规则；没有合格模型或可用独立 API 时隐藏工具，不自动升级其他模型档位。
+品牌只用 `flash`**。这是名称白名单，不是实时价格判断。模型搜索、URL 分析、当前模型、
+缓存和模型 fallback 都遵守此规则。通过 pi 认证的 DeepSeek 原生工具是纯 API 例外：
+不调用推理模型，不要求 `flash` id。没有合格模型、pi 已认证的 DeepSeek 原生工具或
+可用独立 API 时隐藏工具，不自动升级其他推理模型档位。
 
 上述轻量档位限制只针对模型接口；专用 Search API 不调用推理模型。
 在可用的手动首选之后，先尝试已配置的 **Keenable → Exa → Perplexity → 独立 DeepSeek**
@@ -452,10 +460,11 @@ PowerShell 使用 `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`。
 
 - 当前对话模型属于上述轻量档位，且支持 provider 原生搜索接口；或
 - 至少一个已认证的可用轻量模型映射到支持的 provider family；或
+- pi 已配置官方 `deepseek` provider 凭据，可调用原生 Search/Fetch，无需可用对话模型或 `flash` id；或
 - 已配置可用的专用 Search API，无需对话模型。
 
-模型接口的 `urls` 暴露也遵守轻量档位限制；独立 Keenable、Exa 和 DeepSeek
-无需 chat 模型即可提供 URL 抓取。
+模型接口的 `urls` 暴露也遵守轻量档位限制；独立 Keenable、Exa、DeepSeek，
+以及通过 pi 认证的 DeepSeek 原生工具，无需 chat 模型即可提供 URL 抓取。
 
 当前模型不支持搜索，且没有兼容的登录/API key 时，工具保持隐藏（从 active
 tool set 移除）。扩展不会调用未认证的 provider。可用 provider 或凭据集合变化

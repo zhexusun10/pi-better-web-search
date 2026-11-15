@@ -106,7 +106,8 @@ A focused tool with the reliability features an agent actually needs:
   and parameter schema.
 - **Correct exposure.** The tool is hidden when the current model has no
   compatible search interface and no compatible provider is authenticated. A
-  configured dedicated search API or authenticated lightweight model exposes it.
+  configured dedicated search API, pi-authenticated DeepSeek tools, or an
+  authenticated lightweight model exposes it.
 - **Automatic fallback.** If the current model cannot search, or a provider
   call fails, the extension tries other authenticated provider interfaces until
   one succeeds.
@@ -193,6 +194,13 @@ below and may end with `[truncated]`. Progress uses `onUpdate`, not an additiona
 final return type.
 
 ## Dedicated search APIs
+
+**Already logged into official DeepSeek with pi's `/login`, or configured its key
+in pi's `models.json`? No second login is needed.** The extension reuses pi's
+`deepseek` provider credentials for native Search/Fetch, even if the available chat
+catalog is empty or has no `flash` model. Select it with `/web-search-provider fetch`
+or `/web-search-provider search`. No inference model is invoked and no key is copied.
+Third-party gateways merely hosting DeepSeek models are not treated as the official API.
 
 Run **`/pi-better-web-search login`** in pi's terminal, choose **DeepSeek, Exa,
 Keenable, or Perplexity**, then paste/type the API key into the **hidden input**
@@ -316,10 +324,11 @@ Dedicated retrieval APIs have no chat-model tier and can expose the tool on
 their own. For model-backed interfaces, only lightweight models are eligible:
 **OpenAI = `luna`, Claude = `haiku`,
 all other brands (including DeepSeek) = `flash`**. This is a strict allowlist,
-not live price detection. It applies to search, URL analysis, current models,
-cache hints, and all fallback attempts. Without an eligible model, the tool
-stays hidden unless a standalone API is available; it never silently upgrades
-to another model tier.
+not live price detection. It applies to model-backed search, URL analysis,
+current models, cache hints, and fallback. Pi-authenticated DeepSeek native tools
+are an API-only exception: they use no inference model and need no `flash` id.
+Without an eligible model, pi-authenticated DeepSeek tools, or a standalone API,
+the tool stays hidden; it never silently upgrades to another inference-model tier.
 
 After any explicit provider preference, configured **Keenable → Exa →
 Perplexity → standalone DeepSeek** APIs are tried first (Fetch skips Perplexity),
@@ -528,10 +537,13 @@ needed.
   search interface; or
 - at least one authenticated available lightweight model maps to a supported
   provider family; or
+- pi has configured official `deepseek` provider credentials for native
+  Search/Fetch (no available chat model or `flash` id needed); or
 - a dedicated search API is configured and usable (no chat model needed).
 
 For model-backed interfaces the same lightweight restriction applies to `urls`;
-standalone Keenable, Exa, and DeepSeek expose it without a chat-model tier.
+standalone Keenable, Exa, and DeepSeek, plus pi-authenticated DeepSeek native
+tools, expose it without a chat-model tier.
 
 For an unsupported current model with no compatible login or API key, the tool
 stays hidden (removed from the active tool set). The extension never calls an

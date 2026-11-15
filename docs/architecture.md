@@ -20,7 +20,8 @@ output guard. It does not own provider result cleanup.
    authentication quirks, and stream format.
 5. **Strict lightweight routing.** Only OpenAI `luna`, Claude `haiku`, and
    other brands' `flash` models are eligible for model-backed routes. Standalone
-   APIs are tier-independent. Prefer an explicit user selection, then configured
+   APIs and pi-authenticated DeepSeek native tools are tier-independent. Prefer
+   an explicit user selection, then configured
    APIs, then current-provider/cache/family routing. Model hints reselect eligible
    models and cannot bypass tier rules.
 6. **Do not touch pi's system prompt.** No prompt snippets, guidelines, loadout
@@ -71,14 +72,17 @@ as standalone interfaces merely because they share the `deepseek` provider id.
 
 ## Exposure
 
-A candidate is either a supported lightweight chat model or a configured
-standalone retrieval API, both implementing `ProviderAdapter`. Standalone
-candidates have internal cache/health identities, not actual inference models.
+A candidate is a supported lightweight chat model, a configured standalone
+retrieval API, or pi-authenticated DeepSeek native tools, all implementing
+`ProviderAdapter`. API-only candidates have internal cache/health identities,
+not actual inference models.
 The tool is exposed when:
 
 - the current conversation model has the required lightweight tier and maps to
   a supported family; or
 - `modelRegistry.getAvailable()` contains at least one supported lightweight model; or
+- pi's registry reports configured `deepseek` auth and a native provider endpoint,
+  even when no eligible chat model is available; or
 - a saved-key or environment-configured retrieval API (or explicitly enabled public
   Keenable) is available, without requiring a model registry entry.
 
@@ -100,7 +104,7 @@ silently re-add it.
 ## Candidate ordering
 
 An explicit per-phase provider preference is inserted first when authenticated,
-lightweight, and supported. This is not a filter: all automatic fallback remains
+supported, and lightweight for inference-backed routes. This is not a filter: all automatic fallback remains
 available, and the explicit preference is tried first even after failures.
 
 Configured Keenable, Exa, Perplexity, then standalone DeepSeek come next, ahead

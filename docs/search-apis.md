@@ -27,7 +27,16 @@ Terminal login works without a pi chat model. Both native endpoints use the
 resolved saved/environment key as a Bearer credential, and neither sends a
 model name. Extension-saved keys are not silently forwarded to arbitrary
 custom model gateways. It shares credential-specific `Retry-After` across search and fetch, and rejects
-malformed header keys before HTTP. Existing pi model/provider authentication is unchanged.
+malformed header keys before HTTP.
+
+Pi's official `deepseek` provider is also supported independently: credentials
+saved by pi's `/login` or configured through `models.json` are resolved through
+pi's registry at request time, not copied into this extension. Provider-level
+Search/Fetch discovery works without an available chat model or `flash` id.
+These routes retain pi's configured native/proxy base URL and headers; extension
+API toggles still apply only to the separate saved/environment standalone path.
+Third-party gateways merely listing DeepSeek chat models are not promoted to
+native DeepSeek Search/Fetch.
 
 ### Perplexity: standard Search API only
 

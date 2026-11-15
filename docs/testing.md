@@ -51,7 +51,11 @@ and uses temporary cache directories. Coverage includes:
   Exa in-flight key-rotation redaction and canonical-URL error statuses; bounded
   HTTP error cleanup even when underlying stream cancellation never settles;
   a subprocess-mocked DeepSeek smoke test that cannot call unrelated APIs;
-- strict luna/haiku/flash eligibility and numeric newest-version ordering;
+- pi 1.5.2 registry integration using isolated credential/model stores: official
+  DeepSeek pi-login and `models.json` auth with an empty chat snapshot, native
+  Search/Fetch without a flash id, provider menus/tool exposure, proxy/header
+  preservation, login/logout fingerprints, rotation redaction and fallback;
+- strict luna/haiku/flash eligibility for inference-backed routes and numeric newest-version ordering;
 - explicit/current-provider/cache/family ordering without pinning an older model;
 - terminal provider pickers, independent persistent search/fetch choices, Auto,
   cancellation, unavailable choices, and save failures;

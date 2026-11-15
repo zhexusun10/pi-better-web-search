@@ -60,16 +60,21 @@ For model-backed interfaces, routing strictly requires OpenAI-brand `luna`, Clau
 brands' `flash` tier, including gateway models and DeepSeek/Ollama credential
 candidates. Select the highest numeric version within the brand's eligible
 tier. Current models, cache hints, and fallback cannot bypass this allowlist.
-An authenticated native provider with no eligible model does not expose the
-tool on its own; configured standalone APIs remain available.
+An authenticated inference-model provider with no eligible model does not expose
+the tool on its own; configured standalone APIs remain available. Pi-authenticated
+DeepSeek Search/Fetch is a provider-level API exception: it needs no inference
+model and does not depend on a `flash` id or a populated available chat catalog.
 
 ## DeepSeek
 
 DeepSeek uses the documented native Search/Fetch API rather than the older
 Anthropic-compatible chat route. Neither endpoint sends a `model` parameter:
 choosing a flash candidate selects credentials/base URL, not an inference
-model. The terminal displays the actual Search or Fetch API endpoint rather
-than a misleading pro/flash chat-model label.
+model. If no eligible chat route is available, provider-level discovery reuses
+pi's official `deepseek` login or `models.json` credentials directly. No second
+extension login is required; no key is copied into extension storage. The
+terminal displays the actual Search or Fetch API endpoint rather than a
+misleading pro/flash chat-model label.
 
 ### Authentication and base URL
 

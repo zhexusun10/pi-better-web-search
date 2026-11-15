@@ -22,6 +22,8 @@ export interface Candidate {
   model: Model<Api>;
   family: ProviderFamily;
   adapter: ProviderAdapter;
+  /** Provider-level tools use no inference model and have no model-tier limit. */
+  nativeTools?: true;
 }
 
 export interface ResolutionContext {
@@ -71,11 +73,12 @@ function modelBrandRank(id: string): number {
 }
 
 /**
- * A strict allowlist, not a price estimate: never fall back to a larger tier.
+ * A strict allowlist for inference-backed routes, not a price estimate:
+ * never fall back to a larger tier. API-only tools invoke no inference model.
  * Classify by model brand, not API family, so gateways follow the same rule.
  */
 function isLightweightCandidate(candidate: Candidate): boolean {
-  if (candidate.adapter.standalone) return true;
+  if (candidate.adapter.standalone || candidate.nativeTools) return true;
   const id = normalizedModelId(candidate.model.id);
   const brand = modelBrandRank(id);
   const tier = brand === 1 ? "luna" : brand === 2 ? "haiku" : "flash";
@@ -160,6 +163,42 @@ function dedicatedCandidate(provider: DedicatedProvider): Candidate {
   return { model, family: provider, adapter: provider === "deepseek" ? { ...adapter, standalone: true } : adapter };
 }
 
+/** Reuse pi's DeepSeek login even while its chat catalog is empty, filtered,
+ * stale, or contains only non-flash ids. Never read/copy pi's credential file. */
+function piDeepSeekToolsCandidate(
+  ctx: ExtensionContext,
+  nativeCandidates: Candidate[],
+  current: Candidate | undefined,
+): Candidate | undefined {
+  if (nativeCandidates.some(candidate => candidate.family === "deepseek" && supportsUrls(candidate))) {
+    return undefined; // The existing authenticated model route already works.
+  }
+  try {
+    const registry = ctx.modelRegistry;
+    const provider = registry.getProvider?.("deepseek");
+    // Preserve configured native/proxy origins; never borrow another provider's key.
+    const baseUrl = provider?.baseUrl
+      || registry.getAll?.().find(model => model.provider === "deepseek" && isChatModel(model))?.baseUrl;
+    if (!baseUrl) return undefined;
+    const model: Model<Api> = {
+      ...dedicatedCandidate("deepseek").model,
+      id: "pi-search-fetch",
+      api: "pi-native-web-search",
+      baseUrl,
+    };
+    const configured = registry.getProviderAuthStatus?.("deepseek").configured
+      || registry.hasConfiguredAuth(model);
+    if (!configured) return undefined;
+    if (current?.family === "deepseek" && supportsUrls(current) && registry.hasConfiguredAuth(current.model)) {
+      return undefined;
+    }
+    return { model, family: "deepseek", adapter: getAdapterForFamily("deepseek")!, nativeTools: true };
+  } catch {
+    // Older registries or failed provider discovery must not break other routes.
+    return undefined;
+  }
+}
+
 function availableModels(ctx: ExtensionContext): Model<Api>[] {
   try {
     const models = ctx.modelRegistry.getAvailable();
@@ -193,12 +232,18 @@ export function resolveResolutionContext(
     available.push(candidate);
   }
 
+  const piDeepSeek = piDeepSeekToolsCandidate(ctx, available, current);
+  if (piDeepSeek) available.push(piDeepSeek);
+
   const preferences = readProviderPreferences();
   for (const provider of configuredDedicatedProviders(preferences.apis)) {
     available.push(dedicatedCandidate(provider));
   }
   const cache = readCache();
-  const fingerprint = fingerprintAvailableModels(ctx, models, dedicatedFingerprintEntries(preferences.apis));
+  const fingerprint = fingerprintAvailableModels(ctx, models, [
+    ...dedicatedFingerprintEntries(preferences.apis),
+    ...(piDeepSeek ? [`pi-tools:deepseek@${piDeepSeek.model.baseUrl}`] : []),
+  ]);
   return {
     ctx,
     ...(conversationModel ? { currentProvider: conversationModel.provider } : {}),
@@ -215,7 +260,7 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Only lightweight models are eligible; newest version wins within a brand. */
+/** Inference-backed routes require lightweight models; newest version wins. */
 export function rankFamilyCandidates(candidates: Candidate[]): Candidate[] {
   return candidates.filter(isLightweightCandidate).sort((left, right) => {
     const standaloneOrder = Number(!!right.adapter.standalone) - Number(!!left.adapter.standalone);

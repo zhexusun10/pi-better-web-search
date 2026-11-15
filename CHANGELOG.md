@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- Discover official DeepSeek Search/Fetch through pi's provider-level login and
+  `models.json` authentication even when the available chat catalog is empty or
+  has no flash model. Reuse request-time registry credentials and configured
+  endpoints without copying keys or invoking an inference model; expose both
+  provider pickers and URL support. Preserve standalone priority and fallback.
+- Show all terminal command entrypoints in `/pi-better-web-search` help,
+  including independent search/fetch preferences and API settings.
+
 ## 1.0.0 — Search is an agent superpower
 
 ### The flagship search upgrade
