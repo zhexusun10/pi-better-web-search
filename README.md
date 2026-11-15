@@ -46,7 +46,7 @@ tokens rediscovering a solution someone has already published.** One well-placed
 `web_search` call can surface the right API, package, or fix—turning repeated
 trial and error into a direct path to a successful task, with fewer wasted tokens.
 
-### 1.0.0: An epic release for the pi open-source community
+### 1.0: An epic release for the pi open-source community
 
 Built to be the web-search tool you reach for first:
 
@@ -63,7 +63,7 @@ Built to be the web-search tool you reach for first:
 
 ## Install and search
 
-**Version 1.0.0 is available.** Download the package from the [GitHub release](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.0), or install from npm once the maintainer publishes it:
+**Version 1.0.1 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.1).
 
 ```bash
 pi install npm:pi-better-web-search
@@ -648,7 +648,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-1.0.0.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-1.0.1.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

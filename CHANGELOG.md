@@ -1,16 +1,52 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 — Your pi login, your search tools
 
 ### Fixes
 
-- Discover official DeepSeek Search/Fetch through pi's provider-level login and
-  `models.json` authentication even when the available chat catalog is empty or
-  has no flash model. Reuse request-time registry credentials and configured
-  endpoints without copying keys or invoking an inference model; expose both
-  provider pickers and URL support. Preserve standalone priority and fallback.
-- Show all terminal command entrypoints in `/pi-better-web-search` help,
-  including independent search/fetch preferences and API settings.
+- Discover official DeepSeek Search/Fetch through pi's provider-level `/login`
+  and `models.json` authentication even when the available chat catalog is
+  empty, filtered, stale, or has no flash model. Reuse request-time registry
+  credentials and configured native/proxy endpoints without copying keys or
+  invoking an inference model. Expose Search and Fetch in both provider pickers
+  and enable the URL-capable tool schema without a second extension login.
+- Keep the pi-authenticated DeepSeek route separate from extension-saved and
+  environment standalone credentials. Preserve configured API priority, manual
+  preferences, fallback, and one menu entry per provider. Login/logout changes
+  invalidate discovery fingerprints; request-time auth and captured-header
+  redaction protect stale routes and in-flight credential rotation. Third-party
+  gateways merely hosting DeepSeek chat models are not treated as its native API.
+- Show all terminal command entrypoints in `/pi-better-web-search` and
+  `/pi-better-web-search help`, including `/web-search-provider search`,
+  `/web-search-provider fetch`, and `/web-search-api`. Empty/help requests show
+  informational guidance instead of a warning; invalid arguments still warn
+  without echoing potentially sensitive values. Keep hidden-dialog-only key entry.
+
+### Documentation and artwork
+
+- Restore the original white-background, black/gray wireframe architecture style
+  and concise README introduction. Lead both English and Chinese READMEs with
+  what the plugin does; retain the updated standalone APIs and native fallback
+  diagram, and remove its duplicate from the later routing section.
+- Use the maintainer's original Artificial Analysis screenshot unchanged as
+  `assets/search-index.png`, replacing the redrawn SVG chart. Update related
+  documentation links and package verification so the screenshot ships in npm.
+- Prominently mark **Pi 1.5.2 verified** in both READMEs and the architecture
+  graphic. Define verification as type checking and automated tests against pi
+  1.5.2 host dependencies, with Node.js 22/24 CI, not live testing every provider.
+- Document command discovery, independent search/fetch preferences, direct reuse
+  of pi's DeepSeek credentials, the API-only model-tier exception, and the latest
+  1.0.1 package and publishing commands in English and Chinese.
+
+### Tests
+
+- Add real pi 1.5.2 registry integration with isolated credential/model stores
+  for pi-login and `models.json` auth, plus regression tests for catalog gaps,
+  stale snapshots, legacy registries, tool exposure, provider selection,
+  proxy/auth overrides, logout, credential rotation, priority, and fallback.
+- Add full-help discovery tests across TUI/RPC/print contexts and expand invalid
+  argument checks to ensure help opens no dialogs, changes no state, and never
+  echoes credentials.
 
 ## 1.0.0 — Search is an agent superpower
 

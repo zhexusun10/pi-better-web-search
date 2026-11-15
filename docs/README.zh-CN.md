@@ -38,7 +38,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 一次恰到好处的 `web_search`，就能找到正确的 API、可复用的包或有效修复，
 用更少的无效 token，把任务做对。
 
-### 1.0.0：献给 pi 开源社区的一次史诗级升级
+### 1.0：献给 pi 开源社区的一次史诗级升级
 
 冲着成为你首选的 Web Search 工具而来：
 
@@ -53,7 +53,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 
 ## 安装，登录，开搜
 
-**1.0.0 已可用。** 从 [GitHub Release](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.0) 下载安装包，或在维护者发布后从 npm 安装：
+**1.0.1 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.1)。
 
 ```bash
 pi install npm:pi-better-web-search
@@ -544,7 +544,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-1.0.0.tgz`。不会自动发布。
+`dist/pi-better-web-search-1.0.1.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。
