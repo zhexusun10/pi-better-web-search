@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="840" viewBox="0 0 1200 840" role="img" aria-labelledby="title desc">
+  <title id="title">Search is an agent superpower: 33 to 83</title>
+  <desc id="desc">Artificial Analysis Search Index, supplied 15 November 2026 snapshot. Model-only baseline 33. Keenable pro 83, Keenable realtime 82, Exa auto 80, Perplexity medium 80, Exa lite 79, Perplexity high 79, Octen highlights 77, Parallel advanced 75, Brave LLM 75, OpenAI Web Search 74, You.com highlights 74, DeepSeek summary 69. Dashed line marks the no-search baseline. OpenAI uses an integrated first-party tool and harness.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#10182e"/><stop offset="1" stop-color="#080d1a"/></linearGradient>
+    <linearGradient id="leader"><stop stop-color="#40dcb1"/><stop offset="1" stop-color="#62e5ce"/></linearGradient>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; }
+      .label { fill: #d9e2f5; font-size: 18px; }
+      .score { fill: #f4f7ff; font-size: 18px; font-weight: 700; }
+      .note { fill: #a8b8d4; font-size: 15px; }
+      .grid { stroke: #28354e; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect width="1200" height="840" rx="24" fill="url(#bg)"/>
+  <text x="48" y="50" fill="#62e5ce" font-size="14" font-weight="700" letter-spacing="2">THE WEB IS YOUR AGENT'S ADVANTAGE</text>
+  <text x="48" y="107" fill="#ffffff" font-size="44" font-weight="700">33 without search. 83 with it.</text>
+  <text x="48" y="143" class="note">Artificial Analysis Search Index · Higher is better · 15 Nov 2026 snapshot</text>
+  <rect x="938" y="44" width="214" height="94" rx="14" fill="#173c3c" stroke="#2a6b60"/>
+  <text x="1045" y="87" text-anchor="middle" fill="#62e5ce" font-size="36" font-weight="700">+50 points</text>
+  <text x="1045" y="116" text-anchor="middle" class="note">Keenable Pro vs model only</text>
+
+  <!-- Scale: score 0–100 maps to x=330–1110. Every bar starts at zero. -->
+  <g class="grid">
+    <path d="M330 194V728 M486 194V728 M642 194V728 M798 194V728 M954 194V728 M1110 194V728"/>
+  </g>
+  <g class="note" text-anchor="middle">
+    <text x="330" y="185">0</text><text x="486" y="185">20</text><text x="642" y="185">40</text><text x="798" y="185">60</text><text x="954" y="185">80</text><text x="1110" y="185">100</text>
+  </g>
+  <rect x="32" y="205" width="1120" height="42" rx="8" fill="#163435"/>
+  <rect x="32" y="293" width="1120" height="86" rx="8" fill="#172843"/>
+
+  <g>
+    <text x="48" y="232" class="label" font-weight="700">Keenable · pro</text><rect x="330" y="212" width="647.4" height="28" rx="5" fill="url(#leader)"/><text x="991" y="233" class="score">83</text>
+    <text x="48" y="276" class="label">Keenable · realtime</text><rect x="330" y="256" width="639.6" height="28" rx="5" fill="#449f91"/><text x="983" y="277" class="score">82</text>
+    <text x="48" y="320" class="label" font-weight="700">Exa · auto</text><rect x="330" y="300" width="624" height="28" rx="5" fill="#689aff"/><text x="968" y="321" class="score">80</text>
+    <text x="48" y="364" class="label" font-weight="700">Perplexity · medium</text><rect x="330" y="344" width="624" height="28" rx="5" fill="#689aff"/><text x="968" y="365" class="score">80</text>
+    <text x="48" y="408" class="label">Exa · lite</text><rect x="330" y="388" width="616.2" height="28" rx="5" fill="#4778c6"/><text x="960" y="409" class="score">79</text>
+    <text x="48" y="452" class="label">Perplexity · high</text><rect x="330" y="432" width="616.2" height="28" rx="5" fill="#4778c6"/><text x="960" y="453" class="score">79</text>
+    <text x="48" y="496" class="label">Octen · highlights</text><rect x="330" y="476" width="600.6" height="28" rx="5" fill="#3f526e"/><text x="944" y="497" class="score">77</text>
+    <text x="48" y="540" class="label">Parallel · advanced</text><rect x="330" y="520" width="585" height="28" rx="5" fill="#3f526e"/><text x="929" y="541" class="score">75</text>
+    <text x="48" y="584" class="label">Brave · LLM</text><rect x="330" y="564" width="585" height="28" rx="5" fill="#3f526e"/><text x="929" y="585" class="score">75</text>
+    <text x="48" y="628" class="label">OpenAI Web Search *</text><rect x="330" y="608" width="577.2" height="28" rx="5" fill="#8392ab"/><text x="921" y="629" class="score">74</text>
+    <text x="48" y="672" class="label">You.com · highlights</text><rect x="330" y="652" width="577.2" height="28" rx="5" fill="#3f526e"/><text x="921" y="673" class="score">74</text>
+    <text x="48" y="716" class="label">DeepSeek · summary</text><rect x="330" y="696" width="538.2" height="28" rx="5" fill="#8c7be5"/><text x="882" y="717" class="score">69</text>
+  </g>
+  <path d="M587.4 196V731" stroke="#f6c870" stroke-width="2" stroke-dasharray="5 5"/>
+  <rect x="499" y="733" width="177" height="28" rx="6" fill="#3c3223"/>
+  <text x="587.4" y="753" text-anchor="middle" fill="#f6c870" font-size="15" font-weight="700">Model only: 33</text>
+
+  <text x="48" y="794" class="note">Source: artificialanalysis.ai/agents/search-api · Equal-weighted DeepSearchQA / BrowseComp / AA-Omniscience</text>
+  <text x="48" y="819" class="note">* Integrated first-party search tool and harness. Provider modes are labeled as benchmarked.</text>
+</svg>

@@ -10,6 +10,8 @@ export const MAX_OUTPUT_CHARS =
 export interface WebSearchOutput {
   query?: string;
   search?: {
+    /** Search failed while another requested operation succeeded. */
+    error?: string;
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -31,13 +33,25 @@ export interface WebSearchAttempt {
   message: string;
 }
 
+/** The actual operation; model is omitted for standalone Search/Fetch APIs. */
+export interface WebSearchRoute {
+  phase: "search" | "fetch";
+  provider: string;
+  model?: string;
+  endpoint?: string;
+}
+
 export interface WebSearchDetails {
+  routes?: WebSearchRoute[];
+  activeRoute?: WebSearchRoute;
   provider?: string;
   model?: string;
   fetchProviders?: string[];
   attempts: WebSearchAttempt[];
   resultCount?: number;
   fetchedCount?: number;
+  fetchFailedCount?: number;
+  searchError?: string;
   truncated?: boolean;
   error?: string;
 }

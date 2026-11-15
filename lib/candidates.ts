@@ -1,6 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { hasEnvAuth } from "./auth.ts";
+import { configuredDedicatedProviders, dedicatedFingerprintEntries, DEDICATED_INFO, DEDICATED_PROVIDERS, type DedicatedProvider } from "./dedicated-config.ts";
+import { readProviderPreferences, type ProviderPreferences } from "./preferences.ts";
 import {
   fingerprintAvailableModels,
   isFreshDiscovery,
@@ -25,16 +27,17 @@ export interface Candidate {
 export interface ResolutionContext {
   ctx: ExtensionContext;
   current?: Candidate;
+  currentProvider?: string;
   available: Candidate[];
   cache: PreferenceCache;
+  preferences: ProviderPreferences;
   fingerprint: string;
   fresh: boolean;
 }
 
-/** Search is capped so a bad set of credentials cannot cause an unbounded loop. */
-export const SEARCH_ATTEMPT_CAP = 12;
-/** Fetch is capped separately; the batch-oriented API needs fewer attempts. */
-export const FETCH_ATTEMPT_CAP = 6;
+/** One initial attempt plus at most six fallback attempts per phase. */
+export const SEARCH_ATTEMPT_CAP = 7;
+export const FETCH_ATTEMPT_CAP = 7;
 
 // Compatibility aliases for embedders and tests that used earlier names.
 export const MAX_SEARCH_ATTEMPTS = SEARCH_ATTEMPT_CAP;
@@ -52,94 +55,52 @@ export const MAX_FETCH_CANDIDATES = FETCH_ATTEMPT_CAP;
 export const SEARCH_CAP = SEARCH_ATTEMPT_CAP;
 export const FETCH_CAP = FETCH_ATTEMPT_CAP;
 
-/**
- * Cheapest-first capability tiers per family, ordered small to large. The
- * first matching tier wins and ids that match no tier rank last. Tiers are a
- * tiebreaker only after version comparison, so a newer model is not skipped
- * just because its tier name is new or unknown. Only families whose provider
- * uses tier names need an entry; everywhere else every model shares tier 0.
- */
-function tierMatcher(name: string): RegExp {
-  return new RegExp(`(?:^|[^a-z0-9])${name}(?:$|[^a-z0-9])`, "i");
+/** Ignore gateway namespaces when recognizing model brands and versions. */
+function normalizedModelId(id: string): string {
+  return id.slice(id.lastIndexOf("/") + 1).toLowerCase();
 }
 
-const MODEL_TIERS: Partial<Record<ProviderFamily, readonly RegExp[]>> = {
-  openai: ["luna", "terra", "sol", "astra"].map(tierMatcher),
-  anthropic: ["haiku", "sonnet", "opus", "fable"].map(tierMatcher),
-};
-
-function modelTier(candidate: Candidate): number {
-  const patterns = MODEL_TIERS[candidate.family];
-  if (!patterns) return 0;
-  for (let index = 0; index < patterns.length; index += 1) {
-    if (patterns[index].test(candidate.model.id)) return index;
-  }
-  return patterns.length;
-}
-
-/**
- * Brand order among models that already support an adapter in the same family.
- * A custom Responses gateway may expose several brands; OpenAI and Claude keep
- * their named-tier ordering while other brands use flash / base / pro ordering.
- * This ranking does not make an unsupported model API search-capable.
- */
+/** Brand order only applies to models with a supported adapter and light tier. */
 function modelBrandRank(id: string): number {
-  const normalized = id.toLowerCase();
-  if (/^deepseek(?:[-_.:]|$)/.test(normalized)) return 0;
-  if (/^(?:gpt|chatgpt|codex)(?:[-_.:]|$)/.test(normalized) || /^o\d/.test(normalized)) return 1;
+  const normalized = normalizedModelId(id);
+  if (/^deepseek(?:[-_.:]|\d|$)/.test(normalized)) return 0;
+  if (/^(?:gpt|chatgpt|codex)(?:[-_.:]|\d|$)/.test(normalized) || /^o\d/.test(normalized)) return 1;
   if (/^claude(?:[-_.:]|$)/.test(normalized)) return 2;
   if (/^(?:gemini|gemma)(?:[-_.:]|$)/.test(normalized)) return 3;
   return 4;
 }
 
-function modelVariantRank(id: string): number {
-  const normalized = id.toLowerCase();
-  if (/(?:^|[-_.])flash(?:$|[-_.])/.test(normalized)) return 0;
-  if (/(?:^|[-_.])pro(?:$|[-_.])/.test(normalized)) return 2;
-  return 1;
-}
-
-function usesVariantOrdering(brand: number): boolean {
-  return brand !== 1 && brand !== 2;
-}
-
 /**
- * Parse the model version, not a date suffix or parameter count. The version
- * prefix depends on the family: `gpt-6.1-terra` -> [6, 1], `o3-mini` -> [3],
- * `claude-opus-4-5-20251101` -> [4, 5], `gemini-3.8-flash` -> [3, 8].
- * Ids without a recognizable version return an empty tuple and rank below
- * versioned models.
+ * A strict allowlist, not a price estimate: never fall back to a larger tier.
+ * Classify by model brand, not API family, so gateways follow the same rule.
  */
-function versionTuple(id: string, family: ProviderFamily): number[] {
-  const normalized = id.toLowerCase();
-  let match: RegExpMatchArray | null = null;
+function isLightweightCandidate(candidate: Candidate): boolean {
+  if (candidate.adapter.standalone) return true;
+  const id = normalizedModelId(candidate.model.id);
+  const brand = modelBrandRank(id);
+  const tier = brand === 1 ? "luna" : brand === 2 ? "haiku" : "flash";
+  return new RegExp(`(?:^|[^a-z])${tier}(?:$|[^a-z0-9])`, "i").test(id);
+}
 
-  if (family === "openai") {
-    match = normalized.match(/^(?:gpt|o)[-_ ]?(\d+(?:\.\d+)*)/);
-  } else if (family === "anthropic") {
-    // A date can immediately follow a major version, e.g.
-    // claude-sonnet-4-20250514. Do not interpret it as a minor version.
-    match = normalized.match(/^claude-(?:haiku|sonnet|opus|fable)-(\d+)(?:-(\d+))?/)
-      ?? normalized.match(/^claude-(\d+)(?:-(\d+))?/);
-    if (match) {
-      const minor = match[2];
-      return [Number(match[1]), minor && minor.length < 8 ? Number(minor) : 0];
-    }
-  } else if (family === "google") {
-    match = normalized.match(/^(?:gemini|gemma)[-_]?(\d+(?:\.\d+)*)/);
-    if (!match) return [];
-  } else if (family === "xai") {
-    match = normalized.match(/^grok[-_]?(\d+(?:\.\d+)*)/);
-  } else if (family === "deepseek") {
-    match = normalized.match(/^deepseek[-_]?v?(\d+(?:\.\d+)*)/);
+/** Parse numeric versions by brand, including Claude's dotted/dashed minors. */
+function versionTuple(id: string): number[] {
+  const normalized = normalizedModelId(id);
+  let match: RegExpMatchArray | null;
+  if (/^claude(?:[-_.:]|$)/.test(normalized)) {
+    match = normalized.match(/^claude[-_](?:(?:haiku|sonnet|opus|fable)[-_])?(\d+(?:[.-]\d+)*)/);
+  } else {
+    match = normalized.match(/^(?:deepseek|gpt|chatgpt|codex|o|gemini|gemma|grok)[-_ ]?v?(\d+(?:\.\d+)*)/);
+    // Unknown brands can still use e.g. custom-v6.1-flash. Do not treat
+    // parameter counts (120b) or preview dates as a model version.
+    match ??= normalized.match(/(?:^|[-_:])v?(\d+(?:\.\d+)*)(?=$|[-_:])/);
   }
-
-  if (match) return match[1].split(".").map((part) => Number.parseInt(part, 10));
-
-  // Generic fallback for custom models. Only dot-separated numbers count so
-  // date suffixes such as `...-10-2025` do not look like a newer version.
-  const generic = normalized.match(/\d+(?:\.\d+)*/);
-  return generic ? generic[0].split(".").map((part) => Number.parseInt(part, 10)) : [];
+  if (!match) return [];
+  const parts: number[] = [];
+  for (const part of match[1].split(/[.-]/)) {
+    if (part.length >= 8) break; // e.g. claude-haiku-5-5-20260101
+    parts.push(Number(part));
+  }
+  return parts;
 }
 
 /** Compare version tuples so that a larger, newer version sorts first. */
@@ -185,6 +146,20 @@ function candidateForModel(model: Model<Api> | undefined): Candidate | undefined
   return { model, family, adapter };
 }
 
+/** Internal routing identity for legacy cache/health interfaces only. Never
+ * registered as a pi model, displayed as an inference model, or sent to an API. */
+function dedicatedCandidate(provider: DedicatedProvider): Candidate {
+  const model: Model<Api> = {
+    provider, id: DEDICATED_INFO[provider].fetch ? "search-fetch" : "search",
+    name: DEDICATED_INFO[provider].name, api: "dedicated-web-search",
+    baseUrl: DEDICATED_INFO[provider].baseUrl, reasoning: false, input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 0, maxTokens: 0,
+  };
+  const adapter = getAdapterForFamily(provider)!;
+  return { model, family: provider, adapter: provider === "deepseek" ? { ...adapter, standalone: true } : adapter };
+}
+
 function availableModels(ctx: ExtensionContext): Model<Api>[] {
   try {
     const models = ctx.modelRegistry.getAvailable();
@@ -203,11 +178,13 @@ export function resolveResolutionContext(
   ctx: ExtensionContext,
   model?: Model<Api>,
 ): ResolutionContext {
-  const current = candidateForModel(model ?? ctx.model);
+  const conversationModel = model ?? ctx.model;
+  const current = candidateForModel(conversationModel);
+  const models = availableModels(ctx);
   const available: Candidate[] = [];
   const seen = new Set<string>();
 
-  for (const availableModel of availableModels(ctx)) {
+  for (const availableModel of models) {
     const candidate = candidateForModel(availableModel);
     if (!candidate) continue;
     const key = candidateKey(candidate);
@@ -216,13 +193,19 @@ export function resolveResolutionContext(
     available.push(candidate);
   }
 
+  const preferences = readProviderPreferences();
+  for (const provider of configuredDedicatedProviders(preferences.apis)) {
+    available.push(dedicatedCandidate(provider));
+  }
   const cache = readCache();
-  const fingerprint = fingerprintAvailableModels(ctx);
+  const fingerprint = fingerprintAvailableModels(ctx, models, dedicatedFingerprintEntries(preferences.apis));
   return {
     ctx,
+    ...(conversationModel ? { currentProvider: conversationModel.provider } : {}),
     ...(current ? { current } : {}),
     available,
     cache,
+    preferences,
     fingerprint,
     fresh: isFreshDiscovery(cache, fingerprint),
   };
@@ -232,54 +215,52 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/**
- * Rank candidates inside one family independently of registry order. Brand
- * order comes first (DeepSeek before OpenAI inside a gateway), then the
- * flash / base / pro variant order for non-tiered brands, then the version
- * number. Capability tier is a final tiebreaker for GPT and Claude models.
- */
+/** Only lightweight models are eligible; newest version wins within a brand. */
 export function rankFamilyCandidates(candidates: Candidate[]): Candidate[] {
-  return [...candidates].sort((left, right) => {
+  return candidates.filter(isLightweightCandidate).sort((left, right) => {
+    const standaloneOrder = Number(!!right.adapter.standalone) - Number(!!left.adapter.standalone);
+    if (standaloneOrder !== 0) return standaloneOrder;
     const leftBrand = modelBrandRank(left.model.id);
     const rightBrand = modelBrandRank(right.model.id);
     const brandOrder = leftBrand - rightBrand;
     if (brandOrder !== 0) return brandOrder;
 
-    if (usesVariantOrdering(leftBrand)) {
-      const variantOrder = modelVariantRank(left.model.id) - modelVariantRank(right.model.id);
-      if (variantOrder !== 0) return variantOrder;
-    }
-
     return compareVersionsDesc(
-      versionTuple(left.model.id, left.family),
-      versionTuple(right.model.id, right.family),
+      versionTuple(left.model.id),
+      versionTuple(right.model.id),
     )
-      || modelTier(left) - modelTier(right)
       || compareText(candidateKey(left), candidateKey(right))
       || compareText(left.model.baseUrl ?? "", right.model.baseUrl ?? "");
   });
 }
 
 function supportsSearch(candidate: Candidate | undefined): candidate is Candidate {
-  return !!candidate?.adapter.supportsSearch;
+  return !!candidate?.adapter.supportsSearch && isLightweightCandidate(candidate);
 }
 
 function supportsUrls(candidate: Candidate | undefined): candidate is Candidate {
-  return !!candidate?.adapter.supportsUrls && typeof candidate.adapter.fetch === "function";
+  return !!candidate?.adapter.supportsUrls
+    && typeof candidate.adapter.fetch === "function"
+    && isLightweightCandidate(candidate);
+}
+
+/** Include a supported current model even when it is absent from the registry. */
+function discoveredCandidates(resolution: ResolutionContext): Candidate[] {
+  const { current, available } = resolution;
+  return current && !available.some((candidate) => candidateKey(candidate) === candidateKey(current))
+    ? [...available, current]
+    : available;
 }
 
 function resolveRef(
   resolution: ResolutionContext,
-  ref: ProviderRef | undefined,
+  ref: Pick<ProviderRef, "provider"> | undefined,
   usable: (candidate: Candidate) => boolean,
 ): Candidate | undefined {
   if (!ref) return undefined;
 
-  const exactKey = `${ref.provider}/${ref.model}`;
-  const exact = resolution.available.find((candidate) => candidateKey(candidate) === exactKey);
-  if (exact && usable(exact)) return exact;
-
-  const sameProvider = resolution.available
+  // Cache refs are provider hints only: never pin an older or non-light model.
+  const sameProvider = discoveredCandidates(resolution)
     .filter((candidate) => candidate.model.provider === ref.provider)
     .filter(usable);
   return rankFamilyCandidates(sameProvider)[0];
@@ -305,7 +286,7 @@ function usableFamilyCandidates(
   isUsable: (candidate: Candidate) => boolean,
 ): Candidate[] {
   return rankFamilyCandidates(
-    resolution.available.filter((candidate) => candidate.family === family && isUsable(candidate)),
+    discoveredCandidates(resolution).filter((candidate) => candidate.family === family && isUsable(candidate)),
   );
 }
 
@@ -314,12 +295,34 @@ function buildCandidates(
   isUsable: (candidate: Candidate) => boolean,
   cached: Candidate | undefined,
   cap: number,
+  preferredProvider: string | undefined,
 ): Candidate[] {
   const selected: Candidate[] = [];
   const seen = new Set<string>();
 
-  if (resolution.current && isUsable(resolution.current)) {
-    addUnique(selected, resolution.current, seen, cap);
+  // Explicit choices outrank automatic hints, but never restrict fallback or
+  // reintroduce an unavailable, unauthenticated, or unsupported candidate.
+  if (preferredProvider) {
+    const preferred = resolveRef(resolution, { provider: preferredProvider }, isUsable);
+    if (preferred && isAuthenticatedCandidate(resolution, preferred)) {
+      addUnique(selected, preferred, seen, cap);
+    }
+  }
+
+  // Configured retrieval APIs precede automatic current/cache hints, but an
+  // explicit provider choice above still wins. Health/caps/fallback are shared.
+  for (const provider of DEDICATED_PROVIDERS) {
+    const dedicated = resolution.available.find(candidate =>
+      candidate.model.provider === provider && candidate.adapter.standalone && isUsable(candidate),
+    );
+    addUnique(selected, dedicated, seen, cap);
+  }
+
+  const currentProvider = resolution.currentProvider ?? resolution.current?.model.provider;
+  if (currentProvider) {
+    // The provider hint survives even if the conversation API is unsupported.
+    const preferred = resolveRef(resolution, { provider: currentProvider }, isUsable);
+    addUnique(selected, preferred, seen, cap);
   }
 
   if (!resolution.fresh && cached && isUsable(cached)) {
@@ -389,7 +392,7 @@ export function getSearchCandidates(
   const cached = resolution.fresh
     ? undefined
     : resolveRef(resolution, resolution.cache.search, supportsSearch);
-  return buildCandidates(resolution, supportsSearch, cached, cap);
+  return buildCandidates(resolution, supportsSearch, cached, cap, resolution.preferences.search);
 }
 
 export function getFetchCandidates(
@@ -399,7 +402,7 @@ export function getFetchCandidates(
   const cached = resolution.fresh
     ? undefined
     : resolveRef(resolution, resolution.cache.fetch, supportsUrls);
-  return buildCandidates(resolution, supportsUrls, cached, cap);
+  return buildCandidates(resolution, supportsUrls, cached, cap, resolution.preferences.fetch);
 }
 
 export function hasExposedCandidate(resolution: ResolutionContext): boolean {
@@ -414,6 +417,28 @@ function hasUsableCandidateAuth(resolution: ResolutionContext, candidate: Candid
     // A registry failure must not make an unauthenticated model look usable.
   }
   return hasEnvAuth(candidate.model.provider);
+}
+
+function isAuthenticatedCandidate(resolution: ResolutionContext, candidate: Candidate): boolean {
+  return resolution.available.some((available) => candidateKey(available) === candidateKey(candidate))
+    || hasUsableCandidateAuth(resolution, candidate);
+}
+
+/** All eligible authenticated providers, without attempt caps or duplicate models. */
+export function getSelectableProviders(
+  resolution: ResolutionContext,
+  phase: "search" | "fetch",
+): Candidate[] {
+  const candidates = phase === "search"
+    ? getSearchCandidates(resolution, Infinity)
+    : getFetchCandidates(resolution, Infinity);
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const provider = candidate.model.provider;
+    if (seen.has(provider) || !isAuthenticatedCandidate(resolution, candidate)) return false;
+    seen.add(provider);
+    return true;
+  });
 }
 
 export function hasUrlCandidate(resolution: ResolutionContext): boolean {

@@ -1,5 +1,159 @@
 # Changelog
 
+## 1.0.0 — Search is an agent superpower
+
+### The flagship search upgrade
+
+- Bring **Keenable, Exa, and Perplexity**, the top three independent providers
+  in the Artificial Analysis Search Index snapshot, plus **DeepSeek native
+  Search/Fetch**, directly into pi without requiring a conversation-model change.
+- Lead the English/Chinese READMEs with the search advantage: **33 model-only →
+  83 with Keenable Pro (+50 points)**. Show why agents should find existing
+  libraries, official docs, and proven fixes before spending tokens reinventing
+  them. Add a sourced Search Index chart and redraw the architecture for four
+  standalone APIs, native fallback, terminal login, and the 96k output guard.
+
+### Regression fixes
+
+- Stop OpenAI/xAI streams on completed/done/incomplete terminal events and
+  Anthropic streams on `message_stop`, cancelling connections that remain open
+  instead of timing out and discarding usable search results.
+- Redact native-provider transport, SSE and JSON errors using a snapshot of sent
+  credential headers (including custom API tokens and Bearer/Basic auth). Keep
+  status/code metadata for fallback, scrub structured error bodies, and suppress
+  JSON parser snippets that could expose a partial credential.
+- Require Anthropic server-tool evidence to name `web_search`; unrelated tools
+  no longer produce false search success. Skip non-object stream frames safely.
+- Atomically replace settings and the success cache after writing/syncing a
+  same-directory temporary file. Partial-write and rename failures preserve the
+  previous file; configured file symlinks continue to update their targets.
+- Recheck Keenable public-access consent before each adapter request, including
+  combined calls and URL batches. Key loss/logout no longer downgrades an
+  in-flight operation to public endpoints; preserve completed search/pages and
+  resolve auth-dependent endpoint paths from the same key snapshot as headers.
+- Recognize aborts by signal, structured identity or canonical legacy messages,
+  not arbitrary text containing `abort`. Malformed page responses no longer
+  discard completed URLs, and dedicated transport AbortErrors remain redacted
+  even if credentials rotate while the request is in flight.
+- Cancel stalled response bodies and responses arriving after an attempt timeout,
+  even when a custom transport ignores the signal. Ignore late adapter updates
+  after timeout/completion and prevent disposed deadlines from being restarted.
+- Bound individual SSE frames to 4,194,304 UTF-16 code units, including unfinished
+  lines and multiline data, while accepting larger streams of bounded frames. Scan
+  fragmented lines incrementally instead of repeatedly rescanning their prefix.
+- Share literal/JSON-escaped credential redaction across dedicated API errors,
+  native DeepSeek errors and Exa per-URL errors. Also redact HTTP status text and
+  structured error codes using the credentials actually sent.
+- Keep routing priorities strict: **manual preference → Keenable → Exa →
+  Perplexity → standalone DeepSeek → native automatic routing**. Manual choices
+  get a first probe even after failure or Retry-After; cooldowns reorder only
+  remaining automatic model routes. Standalone DeepSeek failures do not suppress
+  native DeepSeek candidates using separate authentication.
+- Route standalone DeepSeek through shared dedicated HTTP validation/backoff:
+  honor credential-specific `Retry-After` across Search/Fetch, reject malformed
+  header keys before HTTP, and leave native model/proxy auth unchanged.
+- Redact Exa per-URL errors using the key actually sent even if login rotates it
+  in flight; honor canonical-URL error statuses that use `url` instead of `id`.
+- Release bounded HTTP error streams without awaiting an underlying cancellation
+  promise that may never settle, so errors can reach fallback immediately.
+- Isolate the live DeepSeek test's settings/cache and disable standalone API
+  discovery so other saved/environment search keys cannot trigger unrelated
+  provider calls or override the intended native DeepSeek fallback check.
+
+### Implementation details
+
+- Explicitly provide no skills: remove vendor skill copies and their lockfile
+  from the checkout, retain only developer reference notes, and reject skill
+  directories/entrypoints in package verification. Keep normal tool descriptions,
+  schemas and API behavior unchanged; no automatic vendor skill context is added.
+- Refine both description variants to address insufficient or conflicting
+  evidence and cite the source URLs actually used; make fetch conditional on
+  need in the URL-capable version, without adding fetch to search-only guidance.
+- Improve capability-aware tool/field descriptions with natural-language
+  query guidance, source verification/citation, and optional evidence-driven
+  search refinement. Both variants start with the provider-neutral
+  `Search the live web and return the most relevant URLs and content.`; only
+  URL-capable variants instruct fetching pages. Keep `query` / `urls`, existing validation, adapter requests
+  and system prompts unchanged. Document skill wording, provider-specific length
+  limits and agent-driven chains without adding a fixed search loop.
+- Add `/pi-better-web-search login`: select DeepSeek, Exa, Keenable or Perplexity
+  and enter an API key in a masked local terminal dialog. Persist keys separately
+  with restricted permissions, cross-process locking and atomic replacement;
+  refresh tool exposure immediately without environment setup or a chat model.
+  Saved keys override environment keys; preserve manual routing and fallback.
+- Add safe presence-only `status` and confirmed `logout` (disables standalone
+  access without silently switching Keenable to public mode). Refuse RPC/print
+  secret entry and key arguments; preserve cancellation and existing credentials
+  on save failures. Credential files are local plaintext, not encrypted.
+- Add standalone Exa Search/Fetch with `EXA_API_KEY` and `/web-search-api exa`.
+  Search sends the approved `numResults: 10` and `contents.highlights: true`;
+  known URLs use `POST /contents` with top-level `text: true`. Inspect per-URL
+  statuses even on HTTP 200, preserve successful raw documents, and retry only
+  unresolved URLs through existing fallback. Keep safe error redaction,
+  cancellation, Retry-After, API priority and the `query` / `urls` contract.
+  Document Exa/Keenable skill differences; objective and other advanced options
+  remain off; no Exa-specific parameter or system-prompt change is introduced.
+- Add standalone Perplexity Search (`POST /search`, `search_type: web`, never
+  fast, no model/effort, no Fetch) and Keenable pro Search/live GET Fetch.
+  Preserve raw result objects and use existing timeout, cooldown, fallback and
+  partial-success handling. Configured APIs precede automatic model routing;
+  explicit per-phase provider preferences still win.
+- Add `/web-search-api [deepseek|exa|keenable|perplexity]` to enable/disable APIs,
+  view safe key setup, and opt into Keenable public access with privacy consent.
+  This menu saves toggles only; masked login stores credentials separately. Honor Retry-After
+  across dedicated search/fetch calls, and add an opt-in status/shape-only smoke
+  test: `npm run test:live:search-apis -- all`. No new runtime dependency or MCP.
+- Preserve successful search and URL-fetch data independently. Missing fetch
+  capability or fetch failures no longer replace successful search output with
+  a whole-call error; failed search (including query-length rejection) no longer
+  suppresses requested fetch work. Return partial-success JSON with `search.error`
+  and/or per-URL errors, and mark the whole call failed only if no operation
+  succeeded. Keep partial search failures visible in collapsed terminal results.
+- Add `/web-search-provider [search|fetch]` terminal pickers with independent,
+  persistent search/fetch preferences and an Auto reset. Choices precede
+  automatic hints without disabling fallback, per-URL retries, or health
+  cooldowns; success-cache updates never overwrite explicit preferences.
+
+- Clarify that providing `query` triggers a separate search even with `urls`;
+  show URL-only omission guidance only when URL support is exposed. Reject
+  additional input arguments in both schemas and at runtime, require non-empty
+  URL arrays when supplied, and constrain URL strings to 1–8192 Unicode code
+  points consistently with native DeepSeek validation.
+- Strictly limit search and URL analysis candidates to OpenAI `luna`, Claude
+  `haiku`, and other brands' `flash` models. Select the newest numeric version
+  within the eligible brand/tier, including gateways; current-model and cache
+  hints now select a provider instead of pinning an older or larger model.
+  Never fall back to an excluded tier, and hide the tool without an eligible
+  model or configured standalone API.
+- Compare dotted/dashed Claude minor versions numerically and ignore date
+  suffixes independently of the provider API family.
+- Distinguish Search, Fetch, and combined operations in the terminal. Display
+  the actual DeepSeek/Ollama standalone API endpoint instead of an inference
+  model name; add `details.routes` and progress `details.activeRoute` metadata.
+  Raw provider output is unchanged and available in the expanded result.
+- Preserve current-provider priority even when the conversation model's API is
+  unsupported, and derive discovery/cache fingerprints from one registry snapshot.
+- Preserve completed DeepSeek/Ollama URL results after a later global HTTP error;
+  only unresolved URLs proceed to fallback. Show failed URL counts and truncation
+  warnings in collapsed results.
+- Validate timeout overrides against Node's integer timer range and observe
+  adapter rejections even when the signal is already aborted.
+- Handle SSE CR/LF/CRLF boundaries, data-less event resets, `[DONE]`, and pending
+  read cancellation without waiting for the provider connection to close.
+
+### Regression coverage and validation
+
+- Add 62 regression tests across response/deadline lifecycle, late adapter
+  updates, bounded/fragmented SSE frames, credential redaction and rotation,
+  atomic settings/cache writes, runtime Keenable consent, abort classification,
+  native terminal events and search-evidence validation.
+- Add four platform-independent simulated symlink tests for settings/cache target
+  updates and dangling-link refusal. Keep the real filesystem checks separately.
+- Verify on Node 24: 386 tests total, 384 passed, no failures; two real file-symlink
+  tests skipped because Windows returns `EPERM` when creating file symlinks.
+- Type checking and package verification pass. Provider requests are mocked;
+  these checks do not call billable live APIs.
+
 ## 0.1.11
 
 - Increase the default timeout to 120 seconds per search and URL fetch attempt

@@ -17,28 +17,101 @@ npm run verify:package
   tarball contains runtime sources, docs, assets, and metadata, while excluding
   tests, scripts, CI files, the local reference checkout, and `DESIGN.md`.
 - `npm run build` runs the checks, tests, package verification, and packs
-  `dist/pi-better-web-search-0.1.9.tgz`.
+  `dist/pi-better-web-search-1.0.0.tgz`.
 
 Tests import the TypeScript sources directly. The suite mocks `globalThis.fetch`
 and uses temporary cache directories. Coverage includes:
 
 - exposure and schema variants (query-only vs query+urls);
-- current-model/cache/family candidate ordering;
-- cache fingerprint invalidation;
+- capability-aware tool/field guidance, source verification/citation, optional
+  search refinement, no invented global query limit or extra parameters, and
+  explicit search-to-search-to-fetch calls without an automatic fixed chain;
+- four-provider terminal login with masked typing/paste, cancellation, local-TUI
+  gating, immediate API exposure, persisted/env key precedence, safe status and
+  logout, independent credential storage, atomic concurrent updates, corrupt
+  store/save failure handling and secret-free notifications/settings/cache;
+- dedicated API protocols, standard Perplexity search (no fast/effort/Agent API),
+  Keenable keyed/public pro search and live GET fetch, Exa 10-result highlights
+  search and full-text `/contents` fetch, per-URL statuses, reordered/redirected
+  results, duplicate URLs, raw metadata, standalone
+  exposure, explicit/configured/native ordering and fallback;
+- API configuration menus, public-access consent, secret-free persistence,
+  credential redaction and Retry-After seconds/HTTP-date behavior;
+- atomic settings/cache replacement with injected partial-write and rename
+  failures, first-write cleanup and file-symlink compatibility; four simulated
+  symlink tests run on every platform, while two real filesystem checks report
+  the OS error and skip if link creation is unavailable (e.g. Windows `EPERM`);
+- runtime Keenable consent/key checks across combined calls and URL batches,
+  preserved partial results after key loss or consent revocation, and matching
+  public/keyed endpoint/header snapshots;
+- abort-classification false positives in URLs/provider bodies/malformed JSON,
+  and safe typed transport AbortErrors during credential rotation;
+- release regressions: standalone DeepSeek cross-phase Retry-After, credential
+  rotation, pre-HTTP header validation, partial URL preservation and cancellation;
+  Exa in-flight key-rotation redaction and canonical-URL error statuses; bounded
+  HTTP error cleanup even when underlying stream cancellation never settles;
+  a subprocess-mocked DeepSeek smoke test that cannot call unrelated APIs;
+- strict luna/haiku/flash eligibility and numeric newest-version ordering;
+- explicit/current-provider/cache/family ordering without pinning an older model;
+- terminal provider pickers, independent persistent search/fetch choices, Auto,
+  cancellation, unavailable choices, and save failures;
+- selected-provider fallback, per-URL partial success, cooldown/recovery, and
+  separation of explicit preferences from success-cache fingerprints;
+- terminal search/fetch labels and native API routes without inference-model labels;
+- current-provider hints with unsupported conversation APIs, and single-snapshot
+  candidate discovery/cache fingerprints;
 - raw result preservation (duplicate URLs, tracking parameters, junk-looking
   URLs, unknown fields);
-- search and fetch fallback, including per-URL fallback;
-- provider request shapes and SSE parsing;
-- HTTP/stream errors and abort propagation;
+- search and fetch fallback, including per-URL fallback and partial successes
+  preserved across transport/global HTTP failures;
+- independent partial success: preserve search when fetch is unavailable/fails,
+  and fetched pages when search is unavailable/fails, including query-length
+  rejection; complete-failure aggregation and explicit cancellation;
+- provider request shapes and SSE parsing (CR/LF/CRLF, chunk boundaries, empty
+  frames, `[DONE]`, cancellation of pending reads, per-frame/unfinished-line
+  bounds, and larger streams containing individually bounded frames);
+- response lifecycle regressions: timeout cancellation of stalled JSON bodies,
+  late header cleanup, non-settling source cancellation, disposed deadline guards,
+  and suppression of late search/fetch updates after timeout or success;
+- literal/JSON-escaped credential redaction, overlapping secrets, HTTP status
+  text/error codes and transport errors during in-flight key rotation;
+- native OpenAI/xAI/Anthropic terminal events on connections that stay open,
+  Anthropic search-tool evidence checks and non-object stream frames;
+- native transport/SSE/JSON error redaction, captured credential headers in
+  record/tuple/Headers forms, structured error bodies, preserved failure metadata,
+  synchronous failures/header mutation and exact external cancellation reasons;
+- HTTP/stream errors, abort propagation, and already-aborted adapter rejections;
+- invalid/fractional/overflowing timeout configuration;
+- collapsed-result failure counts and truncation warnings;
 - structured character-guard truncation, a single trailing marker, valid JSON
   before the marker, Unicode and escaping, boundary lengths, fair allocation,
   and intact links and identifiers across search results and fetched pages;
 - one-tool registration and no system-prompt hooks.
 
+## Live dedicated API test
+
+```bash
+npm run test:live:search-apis -- all
+# Or select perplexity / keenable / exa instead of all.
+```
+
+This opt-in test prints only HTTP status/response shape, never credentials or
+request headers. It reads saved login keys first, then environment fallbacks
+(`PERPLEXITY_API_KEY`, `EXA_API_KEY`, `KEENABLE_API_KEY`); Perplexity and Exa are
+skipped without either source. Create keys at https://console.perplexity.ai or
+https://dashboard.exa.ai/api-keys and use `/pi-better-web-search login` in pi's
+terminal. With a key, the Exa probe checks both highlights search and full-text
+fetch. Keenable uses public endpoints if neither key source is present. It sends only a public example
+query and URL, stops a provider after any failure, and may consume quota.
+See [dedicated APIs](search-apis.md). Unit tests never use inherited real keys.
+
 ## Live DeepSeek test
 
-This is opt-in and consumes DeepSeek API usage. The key is read from
-`DEEPSEEK_API_KEY` and is never printed or committed.
+This is opt-in and consumes DeepSeek API usage. The key is read from the saved
+login store first, then `DEEPSEEK_API_KEY`, and is never printed or committed.
+The script isolates both cache and settings in a temporary directory and disables
+standalone API discovery to exercise native DeepSeek fallback only. Other saved
+or environment search-API keys cannot cause unrelated provider usage.
 
 ```bash
 DEEPSEEK_API_KEY=... npm run test:live:deepseek
@@ -71,7 +144,8 @@ search and a real DeepSeek credential:
 
 1. Create an isolated `PI_CODING_AGENT_DIR`.
 2. Add a local `models.json` with an `openai-completions` mock provider and a
-   `deepseek` provider whose `apiKey` is `"$DEEPSEEK_API_KEY"`.
+   `deepseek` provider with an eligible `deepseek-v4-flash` candidate whose
+   `apiKey` is `"$DEEPSEEK_API_KEY"`.
 3. Start a local OpenAI-compatible mock server. On the first request, return a
    `web_search` tool call. On the second request, return a final text answer.
 4. Run:
@@ -86,8 +160,9 @@ search and a real DeepSeek credential:
    ```
 
 5. Inspect the second model request. The tool result must be valid raw JSON with
-   `search.provider = "deepseek"`, a non-empty `results` array, and the expected
-   search fields. The cache must contain the DeepSeek provider/model.
+   a non-empty `search.results` array and the expected raw search fields.
+   `details.provider` and the cache must identify DeepSeek; routing is not
+   inserted into the raw `search` payload.
 6. Confirm `web_search` was declared in the first request even though the
    current mock model cannot search.
 

@@ -7,6 +7,10 @@ import {
 } from "../lib/candidates.ts";
 import { buildWebSearchSchema, buildWebSearchToolDescription, WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
 import { runWebSearch } from "../lib/search.ts";
+import { renderWebSearchCall, renderWebSearchResult } from "../lib/render.ts";
+import { registerProviderCommand } from "../lib/provider-command.ts";
+import { registerApiCommand } from "../lib/api-command.ts";
+import { registerLoginCommand } from "../lib/login-command.ts";
 
 export { WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
 
@@ -28,6 +32,8 @@ export function createWebSearchToolManager(
       annotations: { readOnlyHint: true, openWorldHint: true },
       execute: async (_toolCallId, params, signal, onUpdate, ctx) =>
         runWebSearch(params, ctx, signal, onUpdate),
+      renderCall: renderWebSearchCall,
+      renderResult: renderWebSearchResult,
     });
     lastSignature = `${exposed}|${allowUrls}`;
   };
@@ -76,6 +82,9 @@ export function createWebSearchToolManager(
 export default function piBetterWebSearch(pi: ExtensionAPI): void {
   const manager = createWebSearchToolManager(pi);
   manager.register(false);
+  registerProviderCommand(pi);
+  registerApiCommand(pi, ctx => { manager.sync(ctx); });
+  registerLoginCommand(pi, ctx => { manager.sync(ctx); });
 
   pi.on("session_start", (_event, ctx) => {
     manager.sync(ctx);

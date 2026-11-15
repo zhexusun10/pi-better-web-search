@@ -5,6 +5,13 @@ const MAX_FAILURE_COOLDOWN_MS = 10 * 60_000;
 
 export type ProviderPhase = "search" | "fetch";
 
+/** Separate standalone API health from same-named model-provider health. */
+export function candidateHealthProvider(candidate: Candidate): string {
+  return candidate.model.api === "dedicated-web-search"
+    ? `${candidate.model.provider}\0dedicated`
+    : candidate.model.provider;
+}
+
 interface ProviderFailure {
   provider: string;
   phase: ProviderPhase;
@@ -126,19 +133,24 @@ export function getProviderFailure(
 }
 
 /**
- * Keep the configured candidate order except that providers with a recent
- * provider-wide failure and individual models with a recent model-specific
- * failure are moved behind healthy candidates. They remain as a last resort
- * when every candidate is cooling down.
+ * Keep the explicit preference and standalone APIs ahead of model routes.
+ * Among the remaining model routes, move recent failures behind healthy ones;
+ * cooled candidates remain available as a last resort.
  */
 export function prioritizeCandidates(
   phase: ProviderPhase,
   candidates: Candidate[],
   now = Date.now(),
+  preferredProvider?: string,
 ): Candidate[] {
+  // An explicit preference and configured standalone APIs are strict routing
+  // priorities; health reordering only applies to the remaining model routes.
+  const first = candidates[0]?.model.provider === preferredProvider ? candidates[0] : undefined;
+  const dedicated = candidates.filter(candidate => candidate !== first && candidate.model.api === "dedicated-web-search");
   const healthy: Candidate[] = [];
   const cooling: Candidate[] = [];
   for (const candidate of candidates) {
+    if (candidate === first || dedicated.includes(candidate)) continue;
     const provider = candidate.model.provider;
     const model = candidate.model.id;
     if (
@@ -150,7 +162,14 @@ export function prioritizeCandidates(
       healthy.push(candidate);
     }
   }
-  return healthy.length > 0 ? [...healthy, ...cooling] : [...candidates];
+  return [...(first ? [first] : []), ...dedicated, ...healthy, ...cooling];
+}
+
+/** A newly logged-in credential should not inherit the previous key's failures. */
+export function clearProviderHealth(provider: string): void {
+  for (const [key, failure] of failures) {
+    if (failure.provider === provider || failure.provider === `${provider}\0dedicated`) failures.delete(key);
+  }
 }
 
 /** Test helper: health state is process-local and must not leak across tests. */

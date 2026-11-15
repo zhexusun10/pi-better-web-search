@@ -4,32 +4,42 @@
 extension owns exposure, provider selection, fallback, caching, and a small
 output guard. It does not own provider result cleanup.
 
+![Standalone search APIs, native fallback, and independent raw results](../assets/architecture.svg)
+
 ## Design principles
 
-1. **One model-facing tool.** The extension registers only `web_search`.
+1. **One model-facing tool, no skills.** The extension registers only
+   `web_search`. It does not install, register or ship skills; vendor reference
+   files must not live in this checkout's agent skill-discovery directories.
 2. **Expose only what can work.** The tool is hidden when neither the current
-   model nor an authenticated compatible provider can search.
+   model nor an authenticated compatible provider can search, and no standalone
+   search API is configured.
 3. **Trust provider output.** Search results, citations, metadata, and fetched
    pages are returned as provider data, not rewritten into a normalized shape.
 4. **Use provider-native interfaces.** Each family keeps its request shape,
    authentication quirks, and stream format.
-5. **Prefer the current model, remember fallbacks.** A supported current model
-   is tried first unless its provider is cooling down after a recent
-   provider-wide failure. An unsupported current model uses the remembered
-   compatible provider first.
+5. **Strict lightweight routing.** Only OpenAI `luna`, Claude `haiku`, and
+   other brands' `flash` models are eligible for model-backed routes. Standalone
+   APIs are tier-independent. Prefer an explicit user selection, then configured
+   APIs, then current-provider/cache/family routing. Model hints reselect eligible
+   models and cannot bypass tier rules.
 6. **Do not touch pi's system prompt.** No prompt snippets, guidelines, loadout
-   hooks, commands, or extra tools.
+   hooks, or extra tools. Terminal-only commands handle login, API settings,
+   and per-phase provider preferences.
 
 ## Runtime flow
 
 ```text
 extension factory
-  └─ register web_search with defaultActive: false
+  ├─ register web_search with defaultActive: false
+  ├─ register /pi-better-web-search login|logout|status
+  ├─ register /web-search-api [deepseek|exa|keenable|perplexity]
+  └─ register /web-search-provider [search|fetch]
 
 session_start / session_tree / model_select / before_agent_start
   └─ sync(ctx)
        ├─ resolve current candidate + authenticated available candidates
-       ├─ read preference cache + available-model fingerprint
+       ├─ read explicit provider preferences + success cache + available-model fingerprint
        ├─ decide expose and allowUrls
        ├─ re-register the same tool name if the schema variant changed
        └─ add/remove web_search from the active tool set
@@ -42,13 +52,35 @@ tool execute
   └─ format raw JSON; compact or structurally truncate if the guard is exceeded
 ```
 
+## Terminal credentials
+
+`/pi-better-web-search login` selects DeepSeek, Exa, Keenable or Perplexity and
+opens a local-only masked `SecretInput`. It never delegates to the plaintext
+input renderer or accepts a key argument. Login saves a literal key in the
+separate `better-web-search-auth.json` credential file (mode 0600 where
+supported, atomic locked writes, **not encryption**), enables the standalone
+API and resyncs exposure immediately. The saved key precedes its environment
+fallback. No authentication test request is made on login. Status shows
+presence only; logout confirms removal and disables the standalone interface
+without changing global pi/model credentials or silently enabling public access.
+
+Standalone DeepSeek uses the existing native adapter and official base URL with
+an internal routing identity, without requiring a registered chat model. Native
+model candidates retain their existing tier/auth behavior; they are not promoted
+as standalone interfaces merely because they share the `deepseek` provider id.
+
 ## Exposure
 
-A candidate is a chat model that maps to a supported provider family and
-implements a `ProviderAdapter`. The tool is exposed when:
+A candidate is either a supported lightweight chat model or a configured
+standalone retrieval API, both implementing `ProviderAdapter`. Standalone
+candidates have internal cache/health identities, not actual inference models.
+The tool is exposed when:
 
-- the current conversation model maps to a supported family; or
-- `modelRegistry.getAvailable()` contains at least one supported family.
+- the current conversation model has the required lightweight tier and maps to
+  a supported family; or
+- `modelRegistry.getAvailable()` contains at least one supported lightweight model; or
+- a saved-key or environment-configured retrieval API (or explicitly enabled public
+  Keenable) is available, without requiring a model registry entry.
 
 `urls` is exposed only when at least one **usable** URL-capable candidate
 exists. A current model outside `getAvailable()` must prove registry or
@@ -67,46 +99,98 @@ silently re-add it.
 
 ## Candidate ordering
 
-Search candidates:
+An explicit per-phase provider preference is inserted first when authenticated,
+lightweight, and supported. This is not a filter: all automatic fallback remains
+available, and the explicit preference is tried first even after failures.
 
-1. The current model when it supports search.
-2. The remembered search provider when the cache fingerprint is current.
+Configured Keenable, Exa, Perplexity, then standalone DeepSeek come next, ahead
+of current/cache hints; fetch skips Perplexity. Exa search sends
+`numResults: 10` and nested `contents.highlights: true`; its `/contents` fetch
+batches URLs with top-level `text: true` and checks per-URL statuses. Only failed
+URLs continue to fallback. No new model-facing parameter or system-prompt
+guidance is introduced. Each service has one candidate; no API request sends its
+internal identity as a model name. Perplexity is search-only,
+uses standard `search_type: "web"`, and never invokes Agent/Orchestrator APIs.
+The original automatic model order then follows:
+
+1. The newest eligible lightweight model of the current provider.
+2. The newest eligible lightweight model of the remembered search provider
+   when the cache fingerprint is current.
 3. One candidate per remaining family in this order:
    **DeepSeek → Ollama → Google → OpenAI → xAI → Anthropic**.
 4. Prefer previously unrepresented provider ids, then try remaining sibling
    models round-robin across families. Provider-wide failures skip that
    provider; model-specific failures, including model-access 403s, can use a
-   sibling model. The cap is 12 actual search attempts, not skipped candidates.
+   sibling model. Search allows one initial attempt plus six fallback attempts;
+   skipped candidates do not count.
 
 Fetch candidates use the same shape but include only adapters with
-`supportsUrls` and a `fetch` implementation. The fetch cap is 6 actual attempts.
-Cooldowns are applied to the full discovery set before either cap.
+`supportsUrls` and a `fetch` implementation. Fetch has the same 7-attempt cap.
+Cooldowns reorder automatic model routes before either cap, without moving them ahead of standalone APIs or the explicit preference.
 
-Within a family, models are ordered by brand first: DeepSeek, OpenAI, Claude,
-Gemini/Gemma, then other gateway brands. Brands without named tiers use variant
-order `flash → base → pro`, then version number, newest first. GPT and Claude
-use version number first, newest first, with capability tier as a tiebreaker:
-OpenAI uses `luna → terra → sol → astra` and Claude uses
-`haiku → sonnet → opus → fable`. Ties fall back to the deterministic
-`provider/id@baseUrl` order. Ranking only applies to models whose API is already
+Standalone API adapters are explicitly exempt from chat-model tier ranking.
+For model-backed adapters, only `luna` (OpenAI), `haiku` (Claude), or `flash`
+(all other brands) models enter either candidate list. No base, pro, larger named tier, or unknown tier is
+used as a fallback. Within a family, models are ordered by brand first:
+DeepSeek, OpenAI, Claude, Gemini/Gemma, then other gateway brands. Within each
+brand, numeric versions sort newest first. Claude dotted and dashed minors are
+both supported, and date suffixes are ignored. Brand/version recognition is
+independent of API family, including namespaced gateway IDs. Ties fall back to
+the deterministic `provider/id@baseUrl` order. Ranking only applies to models whose API is already
 supported. For example, built-in `opencode-go` DeepSeek models use
 `openai-completions` and are not eligible for Responses search.
 A provider id is only retried with another model when the first failure was
 model-specific; provider-wide failures (auth, balance, network, timeout,
 malformed request) skip the rest of that provider. Provider failures and
 model-specific failures are remembered per phase (search/fetch) for the life of
-the process. On later calls the failed provider or model is moved behind healthy
-candidates for a 60-second to 10-minute exponential cooldown. Concurrent
+the process. On later calls failed automatic model routes move behind healthy
+model routes for a 60-second to 10-minute exponential cooldown. Concurrent
 failures during an active cooldown count as one outage; a failed probe after
 expiry increases the cooldown. A successful search or fetch with at least one
 successful URL and no provider transport error clears it. Calls already in
 flight are not cancelled or reordered.
 
-The current model is preferred when it supports search and neither its provider
-nor that model is cooling down. The cache is a fallback, not an override. When
-the current model
-is unsupported, the cached provider is tried first, which avoids repeating
-discovery on every call.
+The current model and cache entries are provider hints, not pinned model
+choices. Both reselect the newest eligible model from the discovery snapshot.
+The current provider hint is retained even when the conversation model's API
+is unsupported; only its eligible, supported siblings can be requested.
+Discovery and its fingerprint use the same single registry snapshot.
+A supported current lightweight model can participate even if absent from the
+registry. Health cooldowns can move failed models behind healthy lightweight
+fallbacks; no cooldown can reintroduce an excluded tier.
+
+## Terminal rendering
+
+`lib/render.ts` distinguishes Web Search, Web Fetch (URLs only), and combined
+calls. Successful operation metadata is in `details.routes`; progress includes
+`details.activeRoute`. `lib/routes.ts` describes the actual API operation.
+DeepSeek and Ollama routes include the standalone endpoint and omit `model`,
+because the request contains no inference-model parameter. Existing
+`details.model` and cache refs still identify credential-selection candidates.
+The terminal never uses these legacy fields as native API model labels.
+Collapsed results show routes, fetched counts, failed URL counts
+(`details.fetchFailedCount`), and truncation warnings. Expanded results also show
+the untouched raw model-facing content. Errors and partial updates stay visible.
+DeepSeek/Ollama preserve completed URLs after a later global HTTP or transport
+failure; only unresolved URLs are sent to fallback providers.
+
+## Explicit provider preferences
+
+`lib/provider-command.ts` registers `/web-search-provider [search|fetch]` using
+pi's terminal select dialogs. Search and fetch choices are independent. The
+picker lists one newest eligible candidate per authenticated provider, without
+attempt caps; fetch excludes search-only adapters. Native endpoints are shown
+without implying an inference-model request. Auto removes a phase preference;
+cancellation writes nothing. Missing providers remain visible as unavailable.
+
+`lib/preferences.ts` stores `{ version: 1, search?: string, fetch?: string }` in
+`better-web-search-settings.json` under pi's agent directory (override with
+`PI_BETTER_WEB_SEARCH_SETTINGS`). Only provider ids and dedicated API toggles are
+serialized; credentials live in a separate file. Invalid or
+unreadable settings use automatic routing; save failures are reported by the UI.
+Settings are read for each discovery snapshot and are independent of the success
+cache and its fingerprint, so fallback successes never overwrite explicit choices.
+Unavailable choices are ignored until they become eligible again.
 
 ## Cache and fingerprint
 
@@ -128,8 +212,9 @@ Override with `PI_BETTER_WEB_SEARCH_CACHE`. The cache contains:
 ```
 
 The fingerprint is a SHA-256 prefix over sorted
-`provider/model@baseUrl` values for authenticated chat models. When the
-fingerprint changes, cached preferences are ignored for that call and provider
+`provider/model@baseUrl` values for authenticated chat models plus available
+standalone API identities and their credential source/public mode. It contains
+no keys or key hashes. When the fingerprint changes, cached preferences are ignored for that call and provider
 discovery starts again. The cache is rewritten only after a successful search
 or fetch. Credentials are never written.
 
@@ -143,15 +228,29 @@ be used. A cached provider that is no longer available is ignored.
   characters produce an actionable error before any DeepSeek request; no
   automatic truncation, fallback, or health cooldown occurs. Other providers
   are not subject to this limit.
-- `urls` is an array of at most 20 strings.
+- Both schema variants set `additionalProperties: false`; unknown top-level
+  arguments are also rejected at runtime before provider discovery or requests.
+- When supplied, `urls` is an array of 1–20 strings. Schema items have
+  `minLength: 1` and `maxLength: 8192`, using the shared `MAX_URL_LENGTH` constant.
 - Each URL must be HTTP/HTTPS, have a host, omit username/password, and be at
-  most 8192 characters.
+  most 8192 Unicode code points. Native DeepSeek uses the same length bound.
+- Only the URL-capable variant's description and query field advise fetching
+  supplied URLs; query-only descriptions do not advertise unavailable fetch.
+  Both variants prefer natural-language retrieval intent, relevant time
+  scope/source preferences, source verification/citation, and query refinement
+  when evidence is insufficient. This is tool-description guidance, not a
+  system-prompt change, a global query-length cap or an automatic research loop.
 - At least one non-empty query or valid URL is required.
 - Invalid URLs are reported in `fetched` entries when other work is valid.
   If no valid work remains, the tool returns an error.
 
-Search and fetch have separate candidate lists, so a search-only current model
-can search while a URL-capable provider handles the URLs.
+Search and fetch have separate candidate lists and independent failure outcomes.
+A search-only current model can search while a URL-capable provider handles the
+URLs. Ordinary search failures, including missing search capability and query
+length rejection, do not prevent independently requested fetching. A missing
+fetch interface becomes a per-URL error when search succeeded. Only invalid
+request structure, explicit cancellation, or no successful requested operation
+prevents a success/partial-success return.
 
 ## Output
 
@@ -161,6 +260,7 @@ The result is a JSON wrapper:
 {
   query?: string;
   search?: {
+    error?: string; // Search failed, but another requested operation succeeded.
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -176,8 +276,16 @@ The result is a JSON wrapper:
 }
 ```
 
-Fields inside `search` and `fetched[].data` are provider data. The extension
-does not deduplicate,
+All final content blocks are `type: "text"`. Success and partial success use
+JSON with `isError` omitted; complete failure uses natural-language error text
+and `isError: true`. `search.error` and `fetched[].error` describe failed work
+without replacing successful results. Search-only query-length errors retain
+the actionable text without a `Failed: ` prefix. Progress is not a final return.
+`details.searchError` lets collapsed terminal results disclose a failed search
+without treating a successful fetch as a whole-call error.
+
+Fields inside a successful `search` and `fetched[].data` are provider data. The
+extension does not deduplicate,
 normalize, filter, re-rank, summarize, insert citation markers, or append source
 sections. The final guard keeps model-facing results and errors within 96,000
 Unicode code points by default (`PI_BETTER_WEB_SEARCH_MAX_CHARS`).

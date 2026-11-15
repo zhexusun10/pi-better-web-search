@@ -13,10 +13,10 @@ import {
 } from "./helpers.mjs";
 
 import piBetterWebSearch, { createWebSearchToolManager } from "../extensions/index.ts";
-import { fingerprintAvailableModels, readCache } from "../lib/cache.ts";
+import { fingerprintAvailableModels, readCache, writeCache } from "../lib/cache.ts";
 import { MAX_OUTPUT_CHARS } from "../lib/format.ts";
 import { getProviderFailure, isModelCoolingDown, isProviderCoolingDown } from "../lib/health.ts";
-import { WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
+import { WEB_SEARCH_QUERY_ONLY_DESCRIPTION, WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
 import { runWebSearch } from "../lib/search.ts";
 
 const DEEPSEEK_SEARCH_URL = "https://api.deepseek.com/v1/tools/search";
@@ -173,7 +173,7 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
     const fileAfterFirst = JSON.parse(readFileSync(temp.path, "utf8"));
     assert.deepEqual(fileAfterFirst.search, {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
     });
     assert.equal(fileAfterFirst.fingerprint, fingerprintAvailableModels(ctx));
 
@@ -220,7 +220,7 @@ test("a failed current model is moved behind the cached fallback on later calls"
     assert.match(first.details.attempts[0].message, /bad request from OpenAI/);
     assert.deepEqual(readCache().search, {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: deepseek.id,
     });
 
     order.length = 0;
@@ -233,7 +233,7 @@ test("a failed current model is moved behind the cached fallback on later calls"
     assert.equal(JSON.parse(second.content[0].text).search.results[0].title, "DeepSeek fallback");
     assert.deepEqual(readCache().search, {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: deepseek.id,
     });
   });
 });
@@ -260,7 +260,7 @@ test("provider-set changes invalidate the old cache and select the new priority 
     const first = await runWebSearch({ query: "before change" }, ctx);
     assert.equal(first.isError, undefined);
     const before = readCache();
-    assert.deepEqual(before.search, { provider: "openai", model: "gpt-5.1" });
+    assert.deepEqual(before.search, { provider: "openai", model: openai.id });
     assert.equal(before.fingerprint, fingerprintAvailableModels(ctx));
 
     availableModels.push(deepseek);
@@ -275,7 +275,7 @@ test("provider-set changes invalidate the old cache and select the new priority 
     const after = readCache();
     assert.deepEqual(after.search, {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: deepseek.id,
     });
     assert.notEqual(after.fingerprint, before.fingerprint);
     assert.equal(after.fingerprint, fingerprintAvailableModels(ctx));
@@ -313,29 +313,35 @@ test("concurrent DeepSeek queries reject only the ones over 128 Unicode characte
   });
 });
 
-test("a DeepSeek query length error returns immediately without fallback or URL fetch", async (t) => {
+test("a DeepSeek query length error stops search fallback but preserves independent URL fetch", async (t) => {
   await withTempCache(async () => {
     const deepseek = deepseekModel();
     const openai = openaiResponsesModel();
     const ctx = createMockCtx({ model: deepseek, availableModels: [deepseek, openai] });
     const calls = mockFetch(t, ({ url, body }) => {
+      if (url === DEEPSEEK_FETCH_URL) {
+        assert.deepEqual(body, { url: "https://example.org/" });
+        return jsonResponse({ content: "fetched despite invalid search query" });
+      }
       assert.equal(url, DEEPSEEK_SEARCH_URL);
       assert.equal(body.query, "short retry");
       return jsonResponse({ results: [{ title: "retried" }] });
     });
     const query = `${"a".repeat(129)} site:example.org`;
     const result = await runWebSearch({ query, urls: ["https://example.org/"] }, ctx);
-    assert.equal(result.isError, true);
-    assert.match(result.content[0].text, new RegExp(`${Array.from(query).length} Unicode characters`));
-    assert.match(result.content[0].text, /maximum is 128 Unicode characters/);
-    assert.equal(calls.length, 0);
+    assert.equal(result.isError, undefined);
+    const output = JSON.parse(result.content[0].text);
+    assert.match(output.search.error, new RegExp(`${Array.from(query).length} Unicode characters`));
+    assert.match(output.search.error, /maximum is 128 Unicode characters/);
+    assert.deepEqual(output.fetched, [{ url: "https://example.org/", data: { content: "fetched despite invalid search query" } }]);
+    assert.deepEqual(calls.map(call => call.url), [DEEPSEEK_FETCH_URL]);
     assert.deepEqual(result.details.attempts, []);
     assert.equal(isModelCoolingDown("search", "deepseek", deepseek.id), false);
 
     const retry = await runWebSearch({ query: "short retry" }, ctx);
     assert.equal(retry.isError, undefined);
     assert.equal(JSON.parse(retry.content[0].text).search.results[0].title, "retried");
-    assert.equal(calls.length, 1);
+    assert.deepEqual(calls.map(call => call.url), [DEEPSEEK_FETCH_URL, DEEPSEEK_SEARCH_URL]);
   });
 });
 
@@ -432,18 +438,60 @@ test("a provider that failed is moved behind healthy providers on later calls", 
   });
 });
 
+test("HTTP requests use the newest luna despite a large current model and an older cached luna", async (t) => {
+  await withTempCache(async () => {
+    const current = openaiResponsesModel({ id: "gpt-9-sol" });
+    const older = openaiResponsesModel({ id: "gpt-6-luna" });
+    const latest = openaiResponsesModel({ id: "gpt-6.1-luna" });
+    const availableModels = [current, older, latest];
+    const ctx = createMockCtx({ model: current, availableModels });
+    writeCache({ version: 1, fingerprint: fingerprintAvailableModels(ctx), search: { provider: "openai", model: older.id } });
+    const calls = mockFetch(t, ({ url }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      return sseResponse(openaiSearchEvents("query"));
+    });
+
+    const first = await runWebSearch({ query: "query" }, ctx);
+    assert.equal(first.isError, undefined);
+    assert.equal(calls[0].body.model, latest.id);
+    assert.equal(readCache().search.model, latest.id);
+
+    availableModels.push(openaiResponsesModel({ id: "gpt-6.10-luna" }));
+    const second = await runWebSearch({ query: "query" }, ctx);
+    assert.equal(second.isError, undefined);
+    assert.equal(calls[1].body.model, "gpt-6.10-luna");
+  });
+});
+
+test("exhausted light models never fall back to a larger tier", async (t) => {
+  await withTempCache(async () => {
+    const current = openaiResponsesModel({ id: "gpt-9-sol" });
+    const ctx = createMockCtx({ model: current, availableModels: [
+      current, openaiResponsesModel({ id: "gpt-6-luna" }), openaiResponsesModel({ id: "gpt-6.1-luna" }),
+    ] });
+    const calls = mockFetch(t, ({ url, body }) => {
+      assert.equal(url, OPENAI_RESPONSES_URL);
+      return jsonResponse({ error: { message: `model ${body.model} is not supported` } }, 400);
+    });
+    const result = await runWebSearch({ query: "query" }, ctx);
+    assert.equal(result.isError, true);
+    assert.deepEqual(calls.map(call => call.body.model), ["gpt-6.1-luna", "gpt-6-luna"]);
+    assert.equal(result.details.attempts.length, 2);
+  });
+});
+
 test("a model-specific failure is remembered and skipped on later calls", async (t) => {
   await withTempCache(async () => {
-    const failed = openaiResponsesModel({ id: "gpt-5.6-luna" });
-    const healthy = openaiResponsesModel({ id: "gpt-6.1-terra" });
+    const failed = openaiResponsesModel({ id: "gpt-6.1-luna" });
+    const healthy = openaiResponsesModel({ id: "gpt-6-luna" });
     const ctx = createMockCtx({ model: failed, availableModels: [failed, healthy] });
     const models = [];
     mockFetch(t, ({ url, body }) => {
       models.push(body.model);
       if (url !== OPENAI_RESPONSES_URL) return unexpected(url);
-      if (body.model === "gpt-5.6-luna") {
+      if (body.model === failed.id) {
         return jsonResponse(
-          { error: { message: "model gpt-5.6-luna is not supported" } },
+          { error: { message: `model ${failed.id} is not supported` } },
           400,
           "Bad Request",
         );
@@ -453,18 +501,18 @@ test("a model-specific failure is remembered and skipped on later calls", async 
 
     const first = await runWebSearch({ query: "first" }, ctx);
     assert.equal(first.isError, undefined);
-    assert.deepEqual(models, ["gpt-5.6-luna", "gpt-6.1-terra"]);
+    assert.deepEqual(models, [failed.id, healthy.id]);
 
     models.length = 0;
     const second = await runWebSearch({ query: "second" }, ctx);
     assert.equal(second.isError, undefined);
-    assert.deepEqual(models, ["gpt-6.1-terra"]);
+    assert.deepEqual(models, [healthy.id]);
   });
 });
 
 test("a model-specific 403 from the real HTTP adapter falls back to its sibling", async (t) => {
   await withTempCache(async () => {
-    const failed = openaiResponsesModel({ id: "gpt-6.1-sol" });
+    const failed = openaiResponsesModel({ id: "gpt-6.1-luna" });
     const healthy = openaiResponsesModel({ id: "gpt-6-luna" });
     const ctx = createMockCtx({ model: failed, availableModels: [failed, healthy] });
     const models = [];
@@ -520,11 +568,11 @@ test("all providers failing returns a tool error listing every attempt", async (
     assert.match(result.content[0].text, /^Failed: /);
     assert.match(result.content[0].text, /openai exploded/);
     assert.match(result.content[0].text, /deepseek exploded/);
-    assert.doesNotMatch(result.content[0].text, /openai\/gpt-5\.1:/);
-    assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-chat:/);
+    assert.doesNotMatch(result.content[0].text, /openai\/gpt-6-luna:/);
+    assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-v4-flash:/);
     assert.deepEqual(
       result.details.attempts.map((attempt) => `${attempt.provider}/${attempt.model}`).sort(),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1"],
+      ["deepseek/deepseek-v4-flash", "openai/gpt-6-luna"],
     );
     assert.equal(result.details.attempts.every((attempt) => attempt.phase === "search"), true);
   });
@@ -562,7 +610,7 @@ test("URL-only requests use DeepSeek Fetch and return the raw payload", async (t
     assert.deepEqual(calls.map((call) => call.url), [DEEPSEEK_FETCH_URL]);
     const cache = readCache();
     assert.equal(cache.search, undefined);
-    assert.deepEqual(cache.fetch, { provider: "deepseek", model: "deepseek-chat" });
+    assert.deepEqual(cache.fetch, { provider: "deepseek", model: "deepseek-v4-flash" });
   });
 });
 
@@ -580,7 +628,7 @@ test("search and URL analysis may use different providers", async (t) => {
     const calls = mockFetch(t, ({ url, body }) => {
       if (url === OPENAI_RESPONSES_URL) {
         assert.deepEqual(body, {
-          model: "gpt-5.1",
+          model: openai.id,
           input: [{ role: "user", content: [{ type: "input_text", text: query }] }],
           tools: [{ type: "web_search" }],
           include: ["web_search_call.action.sources", "web_search_call.results"],
@@ -619,8 +667,8 @@ test("search and URL analysis may use different providers", async (t) => {
       DEEPSEEK_FETCH_URL,
     ]);
     const cache = readCache();
-    assert.deepEqual(cache.search, { provider: "openai", model: "gpt-5.1" });
-    assert.deepEqual(cache.fetch, { provider: "deepseek", model: "deepseek-chat" });
+    assert.deepEqual(cache.search, { provider: "openai", model: openai.id });
+    assert.deepEqual(cache.fetch, { provider: "deepseek", model: deepseek.id });
   });
 });
 
@@ -761,11 +809,13 @@ test("oversized output is truncated at the configured character limit", async (t
   });
 });
 
-test("extension registers one tool, adds no system-prompt hooks, and returns undefined", () => {
+test("extension registers one tool, declares no skills or system-prompt hooks, and returns undefined", () => {
   const manifest = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(manifest.pi.extensions, ["./extensions/index.ts"]);
+  assert.equal(Object.hasOwn(manifest.pi, "skills"), false);
+  assert.equal(Object.hasOwn(manifest, "skills"), false);
 
   const pi = createMockPi();
   pi.setActiveTools(["read"]);
@@ -774,7 +824,7 @@ test("extension registers one tool, adds no system-prompt hooks, and returns und
 
   const tool = pi.tools.get(WEB_SEARCH_TOOL_NAME);
   assert.equal(tool.name, WEB_SEARCH_TOOL_NAME);
-  assert.equal(tool.description, "Search the web or analyze specified URLs.");
+  assert.equal(tool.description, WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
   assert.equal(tool.promptSnippet, undefined);
   assert.equal(tool.promptGuidelines, undefined);
   assert.equal(tool.prepareLoadout, undefined);

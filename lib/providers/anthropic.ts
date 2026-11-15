@@ -1,6 +1,7 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { baseUrlFor, buildRequestHeaders, resolveAuth, setHeaderIfAbsent } from "../auth.ts";
+import { providerFetch } from "../attempt-timeout.ts";
 import { responseError } from "./http.ts";
 import { readSseEvents } from "./sse.ts";
 import type { ProviderAdapter, ProviderSearchResult } from "./types.ts";
@@ -130,7 +131,7 @@ async function callAnthropicSearch(
     stream: true,
   };
 
-  const response = await fetch(resolveMessagesUrl(baseUrlFor(model, auth)), {
+  const response = await providerFetch(resolveMessagesUrl(baseUrlFor(model, auth)), {
     method: "POST",
     headers,
     body: JSON.stringify(requestBody),
@@ -138,7 +139,7 @@ async function callAnthropicSearch(
   });
 
   if (!response.ok) {
-    throw await responseError(response, ANTHROPIC_LABEL);
+    throw await responseError(response, ANTHROPIC_LABEL, headers);
   }
 
   let answer = "";
@@ -164,6 +165,8 @@ async function callAnthropicSearch(
   };
 
   await readSseEvents(response, signal, ({ data: event }) => {
+    if (event?.type === "message_stop") return true;
+    if (!event || typeof event !== "object") return;
     if (event.type === "error" || (event.error && !event.type)) {
       throw streamError(event);
     }
@@ -178,8 +181,8 @@ async function callAnthropicSearch(
       }
 
       if (block?.type === "server_tool_use") {
-        sawServerToolUse = true;
         if (block.name === "web_search") {
+          sawServerToolUse = true;
           const state: ServerToolState = {
             block,
             partialInput: "",
@@ -252,7 +255,7 @@ async function callAnthropicSearch(
       }
       return;
     }
-  });
+  }, headers);
 
   if (!sawServerToolUse && !sawSearchResult && !sawCitation) {
     throw new Error(`${ANTHROPIC_LABEL} did not perform a web search`);

@@ -8,6 +8,7 @@ import {
   setHeaderIfAbsent,
   type ResolvedAuth,
 } from "../auth.ts";
+import { providerFetch } from "../attempt-timeout.ts";
 import { responseError } from "./http.ts";
 import { readSseEvents } from "./sse.ts";
 import type { ProviderAdapter, ProviderFamily, ProviderSearchResult } from "./types.ts";
@@ -168,13 +169,13 @@ async function searchResponses(
   }
 
   const baseUrl = resolveGitHubCopilotBaseUrl(model, auth);
-  const response = await fetch(resolveOpenAIResponsesUrl(model, baseUrl), {
+  const response = await providerFetch(resolveOpenAIResponsesUrl(model, baseUrl), {
     method: "POST",
     headers: requestHeaders,
     body: JSON.stringify(body),
     signal,
   });
-  if (!response.ok) throw await responseError(response, label);
+  if (!response.ok) throw await responseError(response, label, requestHeaders);
 
   let answer = "";
   const results: RawItem[] = [];
@@ -263,15 +264,14 @@ async function searchResponses(
 
     if (type === "response.incomplete" || event?.response?.status === "incomplete") {
       collectFromResponse(event.response);
-      if (isCodex) return true;
-      return;
+      return true;
     }
 
     if (type === "response.completed" || type === "response.done") {
       collectFromResponse(event.response);
-      if (isCodex) return true;
+      return true;
     }
-  });
+  }, requestHeaders);
 
   if (results.length === 0 && citations.length === 0) {
     throw new Error(`${label} did not perform a web search`);

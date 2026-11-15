@@ -14,7 +14,6 @@ import {
   withEnv,
   withTempCache,
 } from "./helpers.mjs";
-
 import { fingerprintAvailableModels, writeCache } from "../lib/cache.ts";
 import {
   FETCH_ATTEMPT_CAP,
@@ -28,454 +27,262 @@ import {
   resolveResolutionContext,
 } from "../lib/candidates.ts";
 
-function ctxFor(model, availableModels, extra = {}) {
-  return createMockCtx({ model, availableModels, ...extra });
+async function withResolution(models, fn, current = unsupportedLocalModel()) {
+  return withTempCache(() => fn(resolveResolutionContext(createMockCtx({
+    model: current,
+    availableModels: models,
+  }))));
 }
 
-async function withResolution(ctx, model, fn) {
-  return withTempCache(async () => {
-    const resolution = resolveResolutionContext(ctx, model);
-    return fn(resolution);
-  });
-}
+const searchKeys = (resolution) => getSearchCandidates(resolution).map(candidateKey);
+const fetchKeys = (resolution) => getFetchCandidates(resolution).map(candidateKey);
 
-test("candidate keys and descriptions are stable", () => {
-  const ctx = createMockCtx({ availableModels: [deepseekModel()] });
-  const resolution = resolveResolutionContext(ctx);
-  const candidate = resolution.available[0];
-  assert.equal(candidateKey(candidate), "deepseek/deepseek-chat");
-  assert.match(describeCandidate(candidate), /deepseek\/deepseek-chat/);
-  assert.match(describeCandidate(candidate), /deepseek/);
+test("candidate keys and descriptions are stable", async () => {
+  await withResolution([deepseekModel()], (resolution) => {
+    const candidate = resolution.available[0];
+    assert.equal(candidateKey(candidate), "deepseek/deepseek-v4-flash");
+    assert.equal(describeCandidate(candidate), "deepseek/deepseek-v4-flash (deepseek)");
+  });
 });
 
-test("current supported search model comes first, followed by a fresh cached preference", async () => {
-  const current = openaiResponsesModel();
-  const deepseek = deepseekModel();
-  const anthropic = anthropicModel();
-  const ctx = ctxFor(current, [deepseek, anthropic]);
-  const fingerprint = fingerprintAvailableModels(ctx);
+test("the current provider uses its newest light model, not the current model", async () => {
+  const current = openaiResponsesModel({ id: "gpt-6-luna" });
+  const newer = openaiResponsesModel({ id: "gpt-6.1-luna" });
+  const large = openaiResponsesModel({ id: "gpt-9-sol" });
+  await withResolution([current, newer, large, deepseekModel()], (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "openai/gpt-6.1-luna", "deepseek/deepseek-v4-flash", "openai/gpt-6-luna",
+    ]);
+  }, current);
+});
 
-  await withTempCache(async () => {
-    writeCache({
-      version: 1,
-      fingerprint,
-      search: { provider: "deepseek", model: "deepseek-chat" },
+test("a non-light current model is only a provider hint and is never requested", async () => {
+  const current = anthropicModel({ id: "claude-opus-9-0" });
+  await withResolution([anthropicModel(), deepseekModel()], (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "anthropic/claude-haiku-5-5", "deepseek/deepseek-v4-flash",
+    ]);
+  }, current);
+});
+
+test("no qualifying current-provider model falls back to other providers", async () => {
+  await withResolution([deepseekModel()], (resolution) => {
+    assert.deepEqual(searchKeys(resolution), ["deepseek/deepseek-v4-flash"]);
+  }, openaiResponsesModel({ id: "gpt-9-sol" }));
+});
+
+test("cache remembers a provider but cannot pin an older or non-light model", async () => {
+  for (const cachedId of ["claude-haiku-5-5", "claude-opus-9-0", "removed-model"]) {
+    const models = [anthropicModel(), anthropicModel({ id: "claude-haiku-5-6" }), deepseekModel()];
+    const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
+    await withTempCache(() => {
+      writeCache({
+        version: 1,
+        fingerprint: fingerprintAvailableModels(ctx),
+        search: { provider: "anthropic", model: cachedId },
+      });
+      assert.deepEqual(searchKeys(resolveResolutionContext(ctx)), [
+        "anthropic/claude-haiku-5-6", "deepseek/deepseek-v4-flash", "anthropic/claude-haiku-5-5",
+      ]);
     });
-    const resolution = resolveResolutionContext(ctx);
-    assert.equal(resolution.fresh, false);
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["openai/gpt-5.1", "deepseek/deepseek-chat", "anthropic/claude-sonnet-4-5"],
-    );
+  }
+});
+
+test("cache cannot reintroduce a provider with only non-light models", async () => {
+  const ctx = createMockCtx({ availableModels: [openaiResponsesModel({ id: "gpt-9-sol" }), deepseekModel()] });
+  await withTempCache(() => {
+    writeCache({ version: 1, fingerprint: fingerprintAvailableModels(ctx), search: { provider: "openai", model: "gpt-9-sol" } });
+    assert.deepEqual(searchKeys(resolveResolutionContext(ctx)), ["deepseek/deepseek-v4-flash"]);
   });
 });
 
-test("a cached preference is first when the current model cannot search", async () => {
-  const current = unsupportedLocalModel();
-  const deepseek = deepseekModel();
-  const anthropic = anthropicModel();
-  const ctx = ctxFor(current, [anthropic, deepseek]);
-  const fingerprint = fingerprintAvailableModels(ctx);
-
-  await withTempCache(async () => {
-    writeCache({
-      version: 1,
-      fingerprint,
-      search: { provider: "deepseek", model: "deepseek-chat" },
-    });
-    const resolution = resolveResolutionContext(ctx);
-    assert.equal(hasExposedCandidate(resolution), true);
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "anthropic/claude-sonnet-4-5"],
-    );
+test("stale fingerprints invalidate cached provider priority", async () => {
+  await withResolution([googleModel(), deepseekModel()], (resolution) => {
+    writeCache({ version: 1, fingerprint: "stale", search: { provider: "google", model: "gemini-2.5-flash" } });
+    const refreshed = resolveResolutionContext(resolution.ctx);
+    assert.equal(refreshed.fresh, true);
+    assert.deepEqual(searchKeys(refreshed), ["deepseek/deepseek-v4-flash", "google/gemini-2.5-flash"]);
   });
 });
 
-test("stale fingerprints invalidate cached refs but keep deterministic discovery", async () => {
-  const current = unsupportedLocalModel();
-  const deepseek = deepseekModel();
-  const google = googleModel();
-  const ctx = ctxFor(current, [google, deepseek]);
-
-  await withTempCache(async () => {
-    writeCache({
-      version: 1,
-      fingerprint: "stale",
-      search: { provider: "google", model: "gemini-2.5-flash" },
-      fetch: { provider: "google", model: "gemini-2.5-flash" },
-    });
-    const resolution = resolveResolutionContext(ctx);
-    assert.equal(resolution.fresh, true);
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "google/gemini-2.5-flash"],
-    );
-  });
-});
-
-test("cached refs resolve to another available model from the same provider", async () => {
-  const current = unsupportedLocalModel();
-  const replacement = deepseekModel({ id: "deepseek-reasoner" });
-  const ctx = ctxFor(current, [replacement]);
-  const fingerprint = fingerprintAvailableModels(ctx);
-
-  await withTempCache(async () => {
-    writeCache({
-      version: 1,
-      fingerprint,
-      search: { provider: "deepseek", model: "deepseek-chat" },
-    });
-    const resolution = resolveResolutionContext(ctx);
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-reasoner"],
-    );
-  });
-});
-
-test("a cached model from the current provider is not promoted, but remains an alternate", async () => {
-  const current = deepseekModel({ id: "deepseek-chat" });
-  const replacement = deepseekModel({ id: "deepseek-reasoner" });
-  const fallback = openaiResponsesModel();
-  const ctx = ctxFor(current, [replacement, fallback]);
-  const fingerprint = fingerprintAvailableModels(ctx);
-
-  await withTempCache(async () => {
-    writeCache({
-      version: 1,
-      fingerprint,
-      search: { provider: "deepseek", model: "deepseek-reasoner" },
-    });
-    const resolution = resolveResolutionContext(ctx);
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1", "deepseek/deepseek-reasoner"],
-    );
-  });
-});
-
-test("modern models rank before legacy ones within a family", async () => {
-  const legacy = openaiResponsesModel({ id: "gpt-4.1" });
-  const modern = openaiResponsesModel({ id: "gpt-5.1" });
-  const ctx = ctxFor(unsupportedLocalModel(), [legacy, modern]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["openai/gpt-5.1", "openai/gpt-4.1"],
-    );
-  });
-});
-
-test("higher version numbers rank first within the same tier", async () => {
-  const older = openaiResponsesModel({ id: "gpt-6.1-luna" });
-  const newer = openaiResponsesModel({ id: "gpt-7.0-luna" });
-  const ctx = ctxFor(unsupportedLocalModel(), [older, newer]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["openai/gpt-7.0-luna", "openai/gpt-6.1-luna"],
-    );
-  });
-});
-
-test("OpenAI tiers rank luna before terra before sol before astra", async () => {
-  const astra = openaiResponsesModel({ id: "gpt-6.1-astra" });
-  const sol = openaiResponsesModel({ id: "gpt-6.1-sol" });
-  const terra = openaiResponsesModel({ id: "gpt-6.1-terra" });
-  const luna = openaiResponsesModel({ id: "gpt-6.1-luna" });
-  const ctx = ctxFor(unsupportedLocalModel(), [astra, sol, terra, luna]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      [
-        "openai/gpt-6.1-luna",
-        "openai/gpt-6.1-terra",
-        "openai/gpt-6.1-sol",
-        "openai/gpt-6.1-astra",
-      ],
-    );
-  });
-});
-
-test("a custom Responses gateway orders supported DeepSeek models before GPT", async () => {
-  const luna = openaiResponsesModel({ id: "gpt-5.6-luna", provider: "custom-responses" });
-  const terra = openaiResponsesModel({ id: "gpt-6.1-terra", provider: "custom-responses" });
-  const deepseekPro = openaiResponsesModel({ id: "deepseek-v4-pro", provider: "custom-responses" });
-  const deepseekFlash = openaiResponsesModel({ id: "deepseek-v4-flash", provider: "custom-responses" });
-  const ctx = ctxFor(unsupportedLocalModel(), [luna, terra, deepseekPro, deepseekFlash]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      [
-        "custom-responses/deepseek-v4-flash",
-        "custom-responses/deepseek-v4-pro",
-        "custom-responses/gpt-6.1-terra",
-        "custom-responses/gpt-5.6-luna",
-      ],
-    );
-  });
-});
-
-test("real OpenCode Go catalog excludes DeepSeek completions rather than inventing Responses support", async () => {
-  const models = getBuiltinModels("opencode-go");
-  const deepseek = models.find((model) => model.id === "deepseek-v4-pro");
-  const gpt = models.find((model) => model.id === "gpt-6-luna");
-  assert.ok(deepseek && gpt);
-  assert.equal(deepseek.api, "openai-completions");
-  assert.equal(gpt.api, "openai-responses");
-  await withResolution(ctxFor(unsupportedLocalModel(), [deepseek, gpt]), undefined, (resolution) => {
-    assert.deepEqual(getSearchCandidates(resolution).map(candidateKey), ["opencode-go/gpt-6-luna"]);
-  });
-});
-
-test("non-tiered brands put flash before base before pro", async () => {
-  const flash = googleModel({ id: "gemini-3.8-flash" });
-  const base = googleModel({ id: "gemini-3.8" });
-  const pro = googleModel({ id: "gemini-3.8-pro" });
-  const ctx = ctxFor(unsupportedLocalModel(), [pro, base, flash]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["google/gemini-3.8-flash", "google/gemini-3.8", "google/gemini-3.8-pro"],
-    );
-  });
-});
-
-test("a newer model outranks an older model even across capability tiers", async () => {
-  const newerTerra = openaiResponsesModel({ id: "gpt-6.1-terra" });
-  const newerSol = openaiResponsesModel({ id: "gpt-6.1-sol" });
-  const olderLuna = openaiResponsesModel({ id: "gpt-6-luna" });
-  const oldestLuna = openaiResponsesModel({ id: "gpt-5.6-luna" });
-  const ctx = ctxFor(unsupportedLocalModel(), [oldestLuna, olderLuna, newerSol, newerTerra]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      [
-        "openai/gpt-6.1-terra",
-        "openai/gpt-6.1-sol",
-        "openai/gpt-6-luna",
-        "openai/gpt-5.6-luna",
-      ],
-    );
-  });
-});
-
-test("Claude tiers rank haiku before sonnet before opus before fable", async () => {
-  const fable = anthropicModel({ id: "claude-fable-5-5" });
-  const opus = anthropicModel({ id: "claude-opus-5-5" });
-  const sonnet = anthropicModel({ id: "claude-sonnet-5-5" });
-  const haiku = anthropicModel({ id: "claude-haiku-5-5" });
-  const ctx = ctxFor(unsupportedLocalModel(), [fable, opus, sonnet, haiku]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      [
-        "anthropic/claude-haiku-5-5",
-        "anthropic/claude-sonnet-5-5",
-        "anthropic/claude-opus-5-5",
-        "anthropic/claude-fable-5-5",
-      ],
-    );
-  });
-});
-
-test("Claude date suffixes do not become minor versions", async () => {
-  const older = anthropicModel({ id: "claude-sonnet-4-20250514" });
-  const newer = anthropicModel({ id: "claude-sonnet-4-6" });
-  const datedMinor = anthropicModel({ id: "claude-sonnet-4-5-20250929" });
-  await withResolution(ctxFor(unsupportedLocalModel(), [older, datedMinor, newer]), undefined, (resolution) => {
-    assert.deepEqual(getSearchCandidates(resolution).map(candidateKey), [
-      "anthropic/claude-sonnet-4-6",
-      "anthropic/claude-sonnet-4-5-20250929",
-      "anthropic/claude-sonnet-4-20250514",
+test("OpenAI only admits luna, ordered by numeric version rather than price tier", async () => {
+  const ids = ["gpt-9-astra", "gpt-8-sol", "gpt-7-terra", "gpt-6-luna", "gpt-6.1-luna", "gpt-6.10-luna", "gpt-6.2-luna"];
+  await withResolution(ids.map(id => openaiResponsesModel({ id })), (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "openai/gpt-6.10-luna", "openai/gpt-6.2-luna", "openai/gpt-6.1-luna", "openai/gpt-6-luna",
     ]);
   });
 });
 
-test("a family contributes alternate models only after every family primary", async () => {
-  const current = unsupportedLocalModel();
-  const openaiLegacy = openaiResponsesModel({ id: "gpt-4.1" });
-  const openaiModern = openaiResponsesModel({ id: "gpt-5.1" });
-  const deepseek = deepseekModel();
-  const ctx = ctxFor(current, [openaiLegacy, openaiModern, deepseek]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1", "openai/gpt-4.1"],
-    );
+test("future major luna versions win without hardcoded catalog versions", async () => {
+  await withResolution(["gpt-6.10-luna", "gpt-7-luna"].map(id => openaiResponsesModel({ id })), (resolution) => {
+    assert.deepEqual(searchKeys(resolution), ["openai/gpt-7-luna", "openai/gpt-6.10-luna"]);
   });
 });
 
-test("a model-specific failure can retry the current provider with a sibling model", async () => {
-  const current = deepseekModel({ id: "deepseek-chat" });
-  const sibling = deepseekModel({ id: "deepseek-reasoner" });
-  const openai = openaiResponsesModel();
-  const ctx = ctxFor(current, [sibling, openai]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "openai/gpt-5.1", "deepseek/deepseek-reasoner"],
-    );
+test("Claude only admits haiku and compares dotted and dashed minor versions numerically", async () => {
+  const ids = ["claude-opus-9-0", "claude-sonnet-8-0", "claude-fable-7-0", "claude-haiku-5.5", "claude-haiku-5.10", "claude-haiku-5-6"];
+  await withResolution(ids.map(id => anthropicModel({ id })), (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "anthropic/claude-haiku-5.10", "anthropic/claude-haiku-5-6", "anthropic/claude-haiku-5.5",
+    ]);
   });
 });
 
-test("a different provider id in the current model's family is still tried", async () => {
-  const current = anthropicModel({ id: "claude-opus-5-5", provider: "zicc-anthropic" });
-  const other = anthropicModel({ id: "claude-haiku-5-5", provider: "opencode-go" });
-  const ctx = ctxFor(current, [other]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      ["zicc-anthropic/claude-opus-5-5", "opencode-go/claude-haiku-5-5"],
-    );
+test("Claude date suffixes do not become minor versions", async () => {
+  const ids = ["claude-haiku-5-20260514", "claude-haiku-5-6", "claude-haiku-5-5-20260929"];
+  await withResolution(ids.map(id => anthropicModel({ id })), (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "anthropic/claude-haiku-5-6", "anthropic/claude-haiku-5-5-20260929", "anthropic/claude-haiku-5-20260514",
+    ]);
   });
 });
 
-test("real OpenAI siblings cannot crowd Codex out of the capped candidates", async () => {
-  const models = getBuiltinModels("openai").filter((model) => model.api === "openai-responses");
-  const current = models[0];
-  const codex = getBuiltinModels("openai-codex").find((model) => model.api === "openai-codex-responses");
-  assert.ok(models.length >= SEARCH_ATTEMPT_CAP, "catalog must contain enough OpenAI siblings to test the cap");
-  assert.ok(current && codex);
-  await withResolution(ctxFor(current, [...models, codex]), undefined, (resolution) => {
+test("DeepSeek and other brands require flash and choose the highest version", async () => {
+  for (const [make, prefix, provider] of [
+    [deepseekModel, "deepseek-v", "deepseek"],
+    [googleModel, "gemini-", "google"],
+    [ollamaCloudModel, "qwen-", "ollama-cloud"],
+  ]) {
+    const ids = [`${prefix}9-pro`, `${prefix}8`, `${prefix}4.1-flash`, `${prefix}4.10-flash`, `${prefix}4.2-flash`];
+    await withResolution(ids.map(id => make({ id })), (resolution) => {
+      assert.deepEqual(searchKeys(resolution), [
+        `${provider}/${prefix}4.10-flash`, `${provider}/${prefix}4.2-flash`, `${provider}/${prefix}4.1-flash`,
+      ]);
+    });
+  }
+});
+
+test("gateway model tiers and versions follow the brand, not the Responses API", async () => {
+  const ids = [
+    "deepseek-v5-pro", "deepseek-v4-flash", "deepseek-v4.1-flash",
+    "gpt-9-sol", "gpt-6-luna", "gpt-6.1-luna",
+    "claude-opus-9-0", "claude-haiku-5-5", "claude-haiku-5.10",
+    "gemini-4-pro", "gemini-3.8-flash", "custom-v6.1-flash",
+  ];
+  await withResolution(ids.map(id => openaiResponsesModel({ id, provider: "gateway" })), (resolution) => {
+    assert.deepEqual(getSearchCandidates(resolution, Infinity).map(candidateKey), [
+      "gateway/deepseek-v4.1-flash", "gateway/deepseek-v4-flash",
+      "gateway/gpt-6.1-luna", "gateway/gpt-6-luna",
+      "gateway/claude-haiku-5.10", "gateway/claude-haiku-5-5",
+      "gateway/gemini-3.8-flash", "gateway/custom-v6.1-flash",
+    ]);
+  });
+});
+
+test("namespaces are ignored and partial tier words are not accepted", async () => {
+  const ids = ["openai/gpt-6.1-luna", "gpt-6luna", "gpt-99-lunatic", "claude-haikuplus-99", "other-99-flashy"];
+  await withResolution(ids.map(id => openaiResponsesModel({ id })), (resolution) => {
+    assert.deepEqual(searchKeys(resolution), ["openai/openai/gpt-6.1-luna", "openai/gpt-6luna"]);
+  });
+});
+
+test("opencode-go completions models remain unsupported despite a flash name", async () => {
+  const models = getBuiltinModels("opencode-go");
+  const deepseek = models.filter(model => model.id.startsWith("deepseek-"));
+  const gpt = models.find(model => model.id === "gpt-6-luna");
+  assert.ok(deepseek.length > 0 && gpt);
+  assert.ok(deepseek.every(model => model.api === "openai-completions"));
+  await withResolution([...deepseek, gpt], (resolution) => {
+    assert.deepEqual(searchKeys(resolution), ["opencode-go/gpt-6-luna"]);
+  });
+});
+
+test("a family contributes older light models only after other family primaries", async () => {
+  await withResolution([
+    openaiResponsesModel({ id: "gpt-5-luna" }), openaiResponsesModel(), deepseekModel(),
+  ], (resolution) => {
+    assert.deepEqual(searchKeys(resolution), [
+      "deepseek/deepseek-v4-flash", "openai/gpt-6-luna", "openai/gpt-5-luna",
+    ]);
+  });
+});
+
+test("different providers precede sibling models of an already represented provider", async () => {
+  const models = Array.from({ length: 20 }, (_, index) => openaiResponsesModel({ id: `gpt-6.${index}-luna` }));
+  const codex = openaiResponsesModel({ provider: "openai-codex", api: "openai-codex-responses" });
+  await withResolution([...models, codex], (resolution) => {
     const candidates = getSearchCandidates(resolution);
     assert.equal(candidates.length, SEARCH_ATTEMPT_CAP);
-    assert.ok(candidates.some((candidate) => candidate.model.provider === "openai-codex"));
+    assert.equal(candidates[1].model.provider, "openai-codex");
+  }, models[0]);
+});
+
+test("fetch also replaces the current and cached model with the newest flash", async () => {
+  const current = googleModel({ id: "gemini-9-pro" });
+  const old = googleModel();
+  const latest = googleModel({ id: "gemini-3.8-flash" });
+  await withResolution([old, latest, deepseekModel()], (resolution) => {
+    writeCache({ version: 1, fingerprint: resolution.fingerprint, fetch: { provider: "google", model: old.id } });
+    assert.deepEqual(fetchKeys(resolveResolutionContext(resolution.ctx)), [
+      "google/gemini-3.8-flash", "deepseek/deepseek-v4-flash", "google/gemini-2.5-flash",
+    ]);
+  }, current);
+});
+
+test("cached fetch priority selects the newest flash even without a current provider", async () => {
+  await withResolution([googleModel(), googleModel({ id: "gemini-3.8-flash" }), deepseekModel()], (resolution) => {
+    writeCache({ version: 1, fingerprint: resolution.fingerprint, fetch: { provider: "google", model: "gemini-2.5-flash" } });
+    assert.equal(fetchKeys(resolveResolutionContext(resolution.ctx))[0], "google/gemini-3.8-flash");
   });
 });
 
-test("url-incapable candidates are filtered from fetch ordering", async () => {
-  const current = openaiResponsesModel();
-  const openai = openaiResponsesModel({ id: "gpt-4o" });
-  const google = googleModel();
-  const deepseek = deepseekModel();
-  const ctx = ctxFor(current, [openai, google, deepseek]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getFetchCandidates(resolution).map(candidateKey),
-      ["deepseek/deepseek-chat", "google/gemini-2.5-flash"],
-    );
-  });
+test("url-incapable models are filtered from fetch ordering", async () => {
+  await withResolution([openaiResponsesModel(), googleModel(), deepseekModel()], (resolution) => {
+    assert.deepEqual(fetchKeys(resolution), ["deepseek/deepseek-v4-flash", "google/gemini-2.5-flash"]);
+  }, openaiResponsesModel());
 });
 
-test("search and fetch candidate lists are deterministic and enforce caps", async () => {
-  const current = unsupportedLocalModel();
+test("candidate ordering is deterministic and respects search and fetch caps", async () => {
   const models = Array.from({ length: 20 }, (_, index) =>
-    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `openai-${index}` }),
-  ).reverse();
-
-  await withResolution(ctxFor(current, models), undefined, (resolution) => {
+    openaiResponsesModel({ id: `gpt-6.${index}-luna`, provider: `openai-${index}` }),
+  );
+  await withResolution(models.reverse(), (resolution) => {
     const search = getSearchCandidates(resolution);
     assert.equal(search.length, SEARCH_ATTEMPT_CAP);
-    // Newer version numbers rank first, so `gpt-5.19` beats `gpt-5.0`.
-    assert.equal(candidateKey(search[0]), "openai-19/gpt-5.19");
-    assert.equal(new Set(search.map((entry) => entry.model.provider)).size, search.length);
+    assert.equal(candidateKey(search[0]), "openai-19/gpt-6.19-luna");
+    assert.equal(new Set(search.map(entry => entry.model.provider)).size, search.length);
   });
-
-  const urlModels = [
-    deepseekModel(),
-    ollamaCloudModel({ provider: "ollama-a" }),
-    ollamaCloudModel({ provider: "ollama-b" }),
-    ollamaCloudModel({ provider: "ollama-c" }),
-    googleModel({ provider: "google-a" }),
-    googleModel({ provider: "google-b" }),
-    googleModel({ provider: "google-c" }),
-    googleModel({ provider: "google-d" }),
-  ];
-  await withResolution(ctxFor(current, urlModels), undefined, (resolution) => {
-    const fetchCandidates = getFetchCandidates(resolution);
-    assert.equal(fetchCandidates.length, FETCH_ATTEMPT_CAP);
-    assert.deepEqual(
-      fetchCandidates.slice(0, 3).map(candidateKey),
-      ["deepseek/deepseek-chat", "ollama-a/gpt-oss:120b", "google-a/gemini-2.5-flash"],
-    );
-    assert.equal(
-      new Set(fetchCandidates.map((entry) => entry.model.provider)).size,
-      fetchCandidates.length,
-    );
+  const urlModels = [deepseekModel(), ...["a", "b", "c"].map(suffix => ollamaCloudModel({ provider: `ollama-${suffix}` })),
+    ...["a", "b", "c", "d"].map(suffix => googleModel({ provider: `google-${suffix}` }))];
+  await withResolution(urlModels, (resolution) => {
+    const fetch = getFetchCandidates(resolution);
+    assert.equal(fetch.length, FETCH_ATTEMPT_CAP);
+    assert.equal(new Set(fetch.map(entry => entry.model.provider)).size, fetch.length);
+    assert.deepEqual(fetch.slice(0, 3).map(candidateKey), [
+      "deepseek/deepseek-v4-flash", "ollama-a/qwen-4-flash", "google-a/gemini-2.5-flash",
+    ]);
   });
 });
 
-test("Google research-preview dates do not look like newer model versions", async () => {
-  const flash = googleModel({ id: "gemini-3.8-flash" });
-  const base = googleModel({ id: "gemini-3.8" });
-  const pro = googleModel({ id: "gemini-3.8-pro" });
-  const research = googleModel({ id: "deep-research-max-preview-04-2026" });
-  const ctx = ctxFor(unsupportedLocalModel(), [research, pro, base, flash]);
-
-  await withResolution(ctx, undefined, (resolution) => {
-    assert.deepEqual(
-      getSearchCandidates(resolution).map(candidateKey),
-      [
-        "google/gemini-3.8-flash",
-        "google/gemini-3.8",
-        "google/gemini-3.8-pro",
-        "google/deep-research-max-preview-04-2026",
-      ],
-    );
-  });
+test("no light models means no search exposure or URL exposure", async () => {
+  const models = [openaiResponsesModel({ id: "gpt-9-sol" }), anthropicModel({ id: "claude-opus-9-0" }), googleModel({ id: "gemini-9-pro" })];
+  await withResolution(models, (resolution) => {
+    assert.deepEqual(searchKeys(resolution), []);
+    assert.deepEqual(fetchKeys(resolution), []);
+    assert.equal(hasExposedCandidate(resolution), false);
+    assert.equal(hasUrlCandidate(resolution), false);
+  }, models[0]);
 });
 
-test("hasUrlCandidate only trusts an unavailable current model with auth", async () => {
-  await withEnv(
-    {
-      DEEPSEEK_API_KEY: undefined,
-      OLLAMA_API_KEY: undefined,
-      GOOGLE_API_KEY: undefined,
-      GEMINI_API_KEY: undefined,
-      OPENAI_API_KEY: undefined,
-      XAI_API_KEY: undefined,
-      ANTHROPIC_API_KEY: undefined,
-      LMSTUDIO_API_KEY: undefined,
-    },
-    async () => {
-      const unauthenticated = ctxFor(deepseekModel(), [], { hasConfiguredAuth: false });
-      await withResolution(unauthenticated, undefined, (resolution) => {
-        assert.equal(hasUrlCandidate(resolution), false);
-      });
-
-      const authenticated = ctxFor(deepseekModel(), [], { hasConfiguredAuth: true });
-      await withResolution(authenticated, undefined, (resolution) => {
-        assert.equal(hasUrlCandidate(resolution), true);
-      });
-
-      const withAvailable = ctxFor(unsupportedLocalModel(), [googleModel()]);
-      await withResolution(withAvailable, undefined, (resolution) => {
-        assert.equal(hasUrlCandidate(resolution), true);
-      });
-
-      const openaiOnly = ctxFor(openaiResponsesModel(), [openaiResponsesModel()]);
-      await withResolution(openaiOnly, undefined, (resolution) => {
-        assert.equal(hasUrlCandidate(resolution), false);
-      });
-    },
-  );
+test("hasUrlCandidate only trusts an unavailable current light model with auth", async () => {
+  await withEnv({ DEEPSEEK_API_KEY: undefined }, async () => {
+    await withTempCache(() => {
+      for (const authenticated of [false, true]) {
+        const ctx = createMockCtx({ model: deepseekModel(), hasConfiguredAuth: authenticated });
+        assert.equal(hasUrlCandidate(resolveResolutionContext(ctx)), authenticated);
+      }
+      const large = googleModel({ id: "gemini-9-pro" });
+      const ctx = createMockCtx({ model: large, hasConfiguredAuth: true });
+      assert.equal(hasUrlCandidate(resolveResolutionContext(ctx)), false);
+    });
+  });
 });
 
 test("models are deduped by provider/model and unsupported families are ignored", async () => {
-  const current = createModel({
-    id: "local",
-    provider: "lmstudio",
-    api: "openai-completions",
-  });
-  const deepseek = deepseekModel();
-  const duplicate = deepseekModel();
-  const ctx = ctxFor(current, [deepseek, duplicate, unsupportedLocalModel()]);
-
-  await withResolution(ctx, undefined, (resolution) => {
+  const current = createModel({ id: "local", provider: "lmstudio", api: "openai-completions" });
+  await withResolution([deepseekModel(), deepseekModel(), unsupportedLocalModel()], (resolution) => {
     assert.equal(resolution.current, undefined);
-    assert.deepEqual(resolution.available.map(candidateKey), ["deepseek/deepseek-chat"]);
-  });
+    assert.deepEqual(resolution.available.map(candidateKey), ["deepseek/deepseek-v4-flash"]);
+  }, current);
 });

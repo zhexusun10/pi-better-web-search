@@ -36,20 +36,20 @@ async function withAdapterPatch(patches, fn) {
   }
 }
 
-test("search and URL fetch attempts default to 120 seconds and allow an explicit override", async (t) => {
+test("search and URL fetch connection deadlines default to 60 seconds and allow an override", async (t) => {
   const timeouts = [];
   t.mock.method(AbortSignal, "timeout", (ms) => {
     timeouts.push(ms);
     return new AbortController().signal;
   });
-  const codex = createModel({ provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
+  const codex = createModel({ id: "gpt-6-luna", provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
   const gateway = openaiResponsesModel({ provider: "github-copilot" });
   const cases = [
-    [openaiResponsesModel(), ADAPTERS.openai, 120_000],
-    [codex, ADAPTERS.openai, 120_000],
-    [gateway, ADAPTERS.openai, 120_000],
-    [xaiModel(), ADAPTERS.xai, 120_000],
-    [deepseekModel(), ADAPTERS.deepseek, 120_000],
+    [openaiResponsesModel(), ADAPTERS.openai, 60_000],
+    [codex, ADAPTERS.openai, 60_000],
+    [gateway, ADAPTERS.openai, 60_000],
+    [xaiModel(), ADAPTERS.xai, 60_000],
+    [deepseekModel(), ADAPTERS.deepseek, 60_000],
   ];
   await withEnv({ PI_BETTER_WEB_SEARCH_TIMEOUT_MS: undefined }, async () => {
     for (const [model, adapter, expected] of cases) {
@@ -62,7 +62,7 @@ test("search and URL fetch attempts default to 120 seconds and allow an explicit
     const google = googleModel();
     await withTempCache(() => withAdapterPatch([[ADAPTERS.google, "fetch", async (_ctx, _model, urls) => ({ entries: urls.map(url => ({ url, data: {} })) })]], async () => {
       await runWebSearch({ urls: ["https://example.com/"] }, createMockCtx({ model: google, availableModels: [google] }));
-      assert.equal(timeouts.pop(), 120_000);
+      assert.equal(timeouts.pop(), 60_000);
     }));
   });
   await withEnv({ PI_BETTER_WEB_SEARCH_TIMEOUT_MS: "45000" }, () => withTempCache(() => withAdapterPatch(
@@ -170,7 +170,8 @@ test("no supported provider returns a clear error instead of calling an adapter"
   const result = await runWebSearch({ query: "anything" }, ctx);
 
   assert.equal(result.isError, true);
-  assert.equal(result.content[0].text, "Failed: This tool is not available in this conversation.");
+  assert.match(result.content[0].text, /^Failed: No eligible search interface/);
+  assert.match(result.content[0].text, /luna.*haiku.*flash/);
 });
 
 test("output wrapper keeps provider results raw and fetch data untouched", async () => {
@@ -228,7 +229,7 @@ test("output wrapper keeps provider results raw and fetch data untouched", async
         });
 
         assert.equal(result.details.provider, "deepseek");
-        assert.equal(result.details.model, "deepseek-chat");
+        assert.equal(result.details.model, deepseek.id);
         assert.deepEqual(result.details.fetchProviders, ["deepseek"]);
         assert.equal(result.details.fetchedCount, 2);
         assert.equal(result.details.resultCount, 1);
@@ -240,8 +241,8 @@ test("output wrapper keeps provider results raw and fetch data untouched", async
         );
 
         const cache = readCache();
-        assert.deepEqual(cache.search, { provider: "deepseek", model: "deepseek-chat" });
-        assert.deepEqual(cache.fetch, { provider: "deepseek", model: "deepseek-chat" });
+        assert.deepEqual(cache.search, { provider: "deepseek", model: deepseek.id });
+        assert.deepEqual(cache.fetch, { provider: "deepseek", model: deepseek.id });
         assert.equal(cache.fingerprint, fingerprintAvailableModels(ctx));
       },
     );
@@ -249,8 +250,8 @@ test("output wrapper keeps provider results raw and fetch data untouched", async
 });
 
 test("a model-specific search error falls back to a sibling model in the same family", async () => {
-  const primary = openaiResponsesModel({ id: "gpt-5.1" });
-  const sibling = openaiResponsesModel({ id: "gpt-4.1" });
+  const primary = openaiResponsesModel({ id: "gpt-6.1-luna" });
+  const sibling = openaiResponsesModel({ id: "gpt-6-luna" });
   const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: [primary, sibling] });
 
   await withTempCache(async () => {
@@ -262,9 +263,9 @@ test("a model-specific search error falls back to a sibling model in the same fa
           "search",
           async (_ctx, model) => {
             calls.push(model.id);
-            if (model.id === "gpt-5.1") {
+            if (model.id === primary.id) {
               throw new Error(
-                "OpenAI API error (400 Bad Request): this account does not support gpt-5.1",
+                `OpenAI API error (400 Bad Request): this account does not support ${primary.id}`,
               );
             }
             return { results: [{ title: "sibling model" }] };
@@ -274,21 +275,21 @@ test("a model-specific search error falls back to a sibling model in the same fa
       async () => {
         const result = await runWebSearch({ query: "sibling fallback" }, ctx);
         assert.equal(result.isError, undefined);
-        assert.deepEqual(calls, ["gpt-5.1", "gpt-4.1"]);
+        assert.deepEqual(calls, [primary.id, sibling.id]);
         assert.equal(JSON.parse(result.content[0].text).search.results[0].title, "sibling model");
         assert.equal(result.details.attempts.length, 1);
-        assert.equal(result.details.attempts[0].model, "gpt-5.1");
+        assert.equal(result.details.attempts[0].model, primary.id);
       },
     );
   });
 });
 
 test("a provider-wide failure reaches another provider despite many current-provider siblings", async () => {
-  const current = openaiResponsesModel({ id: "gpt-6.1" });
+  const current = openaiResponsesModel({ id: "gpt-6.1-luna" });
   const siblings = Array.from({ length: 20 }, (_, index) =>
-    openaiResponsesModel({ id: `gpt-6.${index + 2}` }),
+    openaiResponsesModel({ id: `gpt-6.${index + 2}-luna` }),
   );
-  const codex = openaiResponsesModel({ id: "gpt-5.1", provider: "openai-codex", api: "openai-codex-responses" });
+  const codex = openaiResponsesModel({ id: "gpt-6-luna", provider: "openai-codex", api: "openai-codex-responses" });
   const ctx = createMockCtx({ model: current, availableModels: [current, ...siblings, codex] });
   await withTempCache(async () => {
     const calls = [];
@@ -306,7 +307,7 @@ test("a provider-wide failure reaches another provider despite many current-prov
 
 test("cooldown is applied before the attempt cap to the entire discovery set", async () => {
   const models = Array.from({ length: 20 }, (_, index) =>
-    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `provider-${index}` }),
+    openaiResponsesModel({ id: `gpt-6.${index}-luna`, provider: `provider-${index}` }),
   );
   const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
   await withTempCache(async () => {
@@ -329,7 +330,7 @@ test("cooldown is applied before the attempt cap to the entire discovery set", a
 
 test("actual search attempts are capped even with a larger discovery set", async () => {
   const models = Array.from({ length: 20 }, (_, index) =>
-    openaiResponsesModel({ id: `gpt-5.${index}`, provider: `provider-${index}` }),
+    openaiResponsesModel({ id: `gpt-6.${index}-luna`, provider: `provider-${index}` }),
   );
   const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: models });
   await withTempCache(async () => {
@@ -389,8 +390,8 @@ test("actual fetch attempts are capped even with a larger discovery set", async 
 });
 
 test("a provider-wide search error does not retry sibling models from the same provider", async () => {
-  const primary = openaiResponsesModel({ id: "gpt-5.1" });
-  const sibling = openaiResponsesModel({ id: "gpt-4.1" });
+  const primary = openaiResponsesModel({ id: "gpt-6.1-luna" });
+  const sibling = openaiResponsesModel({ id: "gpt-6-luna" });
   const ctx = createMockCtx({ model: unsupportedLocalModel(), availableModels: [primary, sibling] });
 
   await withTempCache(async () => {
@@ -409,7 +410,7 @@ test("a provider-wide search error does not retry sibling models from the same p
       async () => {
         const result = await runWebSearch({ query: "provider wide" }, ctx);
         assert.equal(result.isError, true);
-        assert.deepEqual(calls, ["gpt-5.1"]);
+        assert.deepEqual(calls, [primary.id]);
         assert.equal(result.details.attempts.length, 1);
       },
     );
@@ -417,8 +418,8 @@ test("a provider-wide search error does not retry sibling models from the same p
 });
 
 test("a provider-wide fetch error does not retry sibling models from the same provider", async () => {
-  const primary = ollamaCloudModel({ provider: "ollama-cloud", id: "gpt-oss:120b" });
-  const sibling = ollamaCloudModel({ provider: "ollama-cloud", id: "qwen3:32b" });
+  const primary = ollamaCloudModel({ provider: "ollama-cloud", id: "qwen-4-flash" });
+  const sibling = ollamaCloudModel({ provider: "ollama-cloud", id: "qwen-3-flash" });
   const ctx = createMockCtx({
     model: unsupportedLocalModel(),
     availableModels: [primary, sibling],
@@ -440,7 +441,7 @@ test("a provider-wide fetch error does not retry sibling models from the same pr
       async () => {
         const result = await runWebSearch({ urls: ["https://example.com/page"] }, ctx);
         assert.equal(result.isError, true);
-        assert.deepEqual(calls, ["gpt-oss:120b"]);
+        assert.deepEqual(calls, [primary.id]);
         assert.equal(result.details.attempts.filter((entry) => entry.phase === "fetch").length, 1);
       },
     );
@@ -623,7 +624,7 @@ test("invalid URLs supplied with a query are reported instead of dropped", async
   });
 });
 
-test("valid URLs with no URL-capable provider return a clear tool error", async () => {
+test("a successful search is preserved when no URL-capable provider is available", async () => {
   const openai = openaiResponsesModel();
   const ctx = createMockCtx({ model: openai, availableModels: [openai] });
 
@@ -645,11 +646,15 @@ test("valid URLs with no URL-capable provider return a clear tool error", async 
           { query: "needs urls", urls: ["https://example.com/page"] },
           ctx,
         );
-        assert.equal(result.isError, true);
-        assert.equal(result.content[0].text, "Failed: URL fetch is not available in this conversation.");
+        assert.equal(result.isError, undefined);
+        const output = JSON.parse(result.content[0].text);
+        assert.deepEqual(output.search, { results: [] });
+        assert.deepEqual(output.fetched, [{ url: "https://example.com/page", error: "URL fetch is not available in this conversation." }]);
+        assert.equal(result.details.fetchedCount, 0);
+        assert.equal(result.details.fetchFailedCount, 1);
         assert.equal(result.details.attempts.length, 0);
         assert.equal(searchCalls, 1);
-        assert.deepEqual(readCache().search, { provider: "openai", model: "gpt-5.1" });
+        assert.deepEqual(readCache().search, { provider: "openai", model: "gpt-6-luna" });
       },
     );
   });
@@ -675,7 +680,7 @@ test("only URLs requested and none fetched returns an error", async () => {
         assert.equal(result.isError, true);
         assert.match(result.content[0].text, /URL fetch failed/);
         assert.match(result.content[0].text, /blocked/);
-        assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-chat:/);
+        assert.doesNotMatch(result.content[0].text, /deepseek\/deepseek-v4-flash:/);
       },
     );
   });
@@ -760,7 +765,7 @@ test("a successful search does not carry an unverified stale preference into a n
         const result = await runWebSearch({ query: "cache" }, ctx);
         assert.equal(result.isError, undefined);
         const cache = readCache();
-        assert.deepEqual(cache.search, { provider: "deepseek", model: "deepseek-chat" });
+        assert.deepEqual(cache.search, { provider: "deepseek", model: deepseek.id });
         assert.equal(cache.fetch, undefined);
         assert.equal(cache.fingerprint, fingerprintAvailableModels(ctx));
       },
@@ -798,7 +803,7 @@ test("a matching fingerprint preserves a preference when this call's fetch fails
         assert.equal(result.isError, undefined);
         assert.equal(JSON.parse(result.content[0].text).fetched[0].error, "blocked");
         const cache = readCache();
-        assert.deepEqual(cache.search, { provider: "deepseek", model: "deepseek-chat" });
+        assert.deepEqual(cache.search, { provider: "deepseek", model: deepseek.id });
         assert.deepEqual(cache.fetch, { provider: "google", model: "gemini-2.5-flash" });
         assert.equal(cache.fingerprint, fingerprintAvailableModels(ctx));
       },
@@ -823,7 +828,7 @@ test("a matching fingerprint preserves an unrequested preference", async () => {
         const result = await runWebSearch({ query: "cache" }, ctx);
         assert.equal(result.isError, undefined);
         const cache = readCache();
-        assert.deepEqual(cache.search, { provider: "deepseek", model: "deepseek-chat" });
+        assert.deepEqual(cache.search, { provider: "deepseek", model: deepseek.id });
         assert.deepEqual(cache.fetch, { provider: "google", model: "gemini-2.5-flash" });
         assert.equal(cache.fingerprint, fingerprintAvailableModels(ctx));
       },

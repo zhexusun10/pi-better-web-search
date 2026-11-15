@@ -35,13 +35,20 @@ manager, preference cache, and orchestrator described below.
    redirect resolution, or source derivation. Trust the provider output. Return
    raw provider data in a JSON wrapper; only when the final output exceeds the
    character guard may fields or entries be structurally truncated.
-5. **Description/schema semantics**: The tool description must start exactly
-   `Search the web or analyze specified URLs.` Property descriptions must make
+5. **Description/schema semantics**: Both descriptions start with
+   `Search the live web and return the most relevant URLs and content.`
+   Subsequent guidance must match exposed capabilities: mention fetch only when
+   URLs are supported. Explain appropriate search use, source verification/citation
+   and optional evidence-driven refinement.
+   Field descriptions prefer natural-language retrieval intent and make
    clear that `urls` can be used alone and together with `query`.
 6. **System prompt**: Do not modify pi's system prompt. Do not add
    `promptSnippet`, `promptGuidelines`, `prepareLoadout`, system-prompt handlers,
-   commands, providers, MCP servers, or any other tool. The only registered tool
-   is `web_search`.
+   providers, MCP servers, or any other tool. The only registered tool is
+   `web_search`; `/web-search-provider` configures user routing preferences.
+   Do not install, register or ship skills. Keep vendor development references
+   outside agent skill-discovery directories; description/schema are the only
+   model-facing search usage guidance provided by this extension.
 7. **DeepSeek**: Add support for DeepSeek's native Search/Fetch API. The provider
    node implements the network calls described in section 10.
 
@@ -50,24 +57,23 @@ manager, preference cache, and orchestrator described below.
 | Path | Owner | Status in this node |
 | --- | --- | --- |
 | `package.json`, `tsconfig.json`, `.gitignore`, `DESIGN.md` | scaffold | complete |
-| `src/index.ts` | orchestrator-exposure | complete: single tool registration and sync |
-| `src/candidates.ts` | orchestrator-exposure | complete: discovery, ordering, exposure |
-| `src/search.ts` | orchestrator-exposure | complete: validation, fallback, cache, output |
-| `src/health.ts` | orchestrator-exposure | complete: provider failure cooldowns |
-| `src/providers/types.ts` | shared contract | complete |
-| `src/providers/index.ts` | shared contract | complete |
-| `src/providers/http.ts` | shared primitive | complete |
-| `src/providers/sse.ts` | shared primitive | complete |
-| `src/providers/deepseek.ts` | DeepSeek provider node | complete: native Search/Fetch |
-| `src/providers/ollama.ts` | Ollama provider node | complete |
-| `src/providers/google.ts` | Google provider node | complete |
-| `src/providers/openai.ts` | OpenAI provider node | complete, including `xaiAdapter` |
-| `src/providers/anthropic.ts` | Anthropic provider node | complete |
-| `src/auth.ts` | shared primitive | complete |
-| `src/families.ts` | shared primitive | complete |
-| `src/cache.ts` | shared primitive | complete |
-| `src/schema.ts` | shared primitive | complete |
-| `src/format.ts` | shared primitive | complete |
+| `extensions/index.ts` | extension | single tool registration, commands and exposure sync |
+| `lib/candidates.ts` | routing | discovery, ordering, exposure, standalone API identities |
+| `lib/search.ts` | orchestration | validation, fallback, independent partial success, output |
+| `lib/health.ts` | routing | per-phase provider/model failure cooldowns |
+| `lib/providers/types.ts`, `index.ts` | shared contract | adapters and capabilities |
+| `lib/providers/http.ts`, `sse.ts` | shared primitives | bounded errors, JSON and cancellable streams |
+| `lib/providers/dedicated-http.ts` | standalone transport | auth, key validation, redaction, Retry-After |
+| `lib/providers/deepseek.ts`, `ollama.ts` | native retrieval | Search/Fetch; DeepSeek also standalone |
+| `lib/providers/exa.ts`, `keenable.ts`, `perplexity.ts` | dedicated retrieval | exact native API requests |
+| `lib/providers/google.ts`, `openai.ts`, `anthropic.ts` | model-backed search | provider protocols, including xAI |
+| `lib/auth.ts`, `families.ts` | provider resolution | registry auth, environment fallback, family detection |
+| `lib/credentials.ts`, `secret-input.ts`, `login-command.ts` | terminal credentials | masked entry, separate atomic locked store |
+| `lib/preferences.ts`, `provider-command.ts`, `api-command.ts`, `dedicated-config.ts` | settings | per-phase preferences and API toggles |
+| `lib/cache.ts` | routing memory | success hints and discovery fingerprint |
+| `lib/schema.ts` | tool contract | query-only / query+urls descriptions and schemas |
+| `lib/format.ts`, `truncate-json.ts` | output | raw JSON wrapper and structured character guard |
+| `lib/render.ts`, `routes.ts` | terminal | actual API routes, progress and partial failures |
 | `tests/` | test suite | complete: provider, primitive, exposure, integration |
 
 The reference checkout `pi-web-search/` is read-only and must not be edited.
@@ -78,8 +84,11 @@ below is authoritative for this package.
 ## 3. Runtime invariants and non-goals
 
 - Register one tool only: `web_search`.
-- No commands, keyboard shortcuts, providers, MCP servers, prompt snippets,
-  prompt guidelines, loadout hooks, or system-prompt mutation.
+- Terminal commands: `/pi-better-web-search login|logout|status`,
+  `/web-search-api [deepseek|exa|keenable|perplexity]`, and
+  `/web-search-provider [search|fetch]`.
+  No keyboard shortcuts, providers, MCP servers, prompt snippets, prompt
+  guidelines, loadout hooks, or system-prompt mutation.
 - No separate `url_context` tool. URL analysis is an optional `urls` field on
   `web_search`.
 - No non-essential runtime dependencies. The package uses TypeBox, pi APIs, and
@@ -90,7 +99,7 @@ below is authoritative for this package.
 
 ## 4. Provider families
 
-`src/families.ts` exposes:
+`lib/families.ts` exposes:
 
 - `getProviderFamily(model)`: returns a `ProviderFamily` or `undefined`.
 - `isSupportedSearchModel(model)`: chat model plus an adapter with
@@ -118,7 +127,7 @@ contract: `deepseek`, `ollama`, `google`, `openai`, `xai`, `anthropic`.
 
 ## 5. Adapter contract
 
-`src/providers/types.ts`:
+`lib/providers/types.ts`:
 
 ```ts
 export const PROVIDER_FAMILIES = ["deepseek", "ollama", "google", "openai", "xai", "anthropic"] as const;
@@ -167,7 +176,7 @@ export interface ProviderAdapter {
 }
 ```
 
-`src/providers/index.ts` exports all adapters and:
+`lib/providers/index.ts` exports all adapters and:
 
 ```ts
 export const ADAPTERS: Record<ProviderFamily, ProviderAdapter>;
@@ -195,20 +204,25 @@ must not retry the same provider after an error.
 
 ## 6. Exposure, candidate discovery, and fallback
 
-The orchestrator-exposure node owns this logic in `src/candidates.ts`,
-`src/search.ts`, and `src/index.ts`. Use the primitives as follows.
+The routing/orchestration logic lives in `lib/candidates.ts`, `lib/search.ts`,
+and `extensions/index.ts`. Use the primitives as follows.
 
 ### 6.1 Usable interfaces
 
-A "usable search interface" is an available chat model whose family adapter has
-`supportsSearch` and whose provider has working credentials. In pi 1.3.0,
+A "usable search interface" is a configured standalone API or an available
+lightweight chat model whose adapter supports search and whose provider has
+credentials. Standalone Perplexity, Keenable, Exa and DeepSeek do not require
+model registration or tiers; internal routing identities are not API model ids.
+Model-backed routes strictly allow OpenAI `luna`, Claude `haiku`, and `flash`
+for other brands, including DeepSeek/Ollama credential candidates. In pi 1.3.0,
 `ctx.modelRegistry.getAvailable()` is the primary authenticated-model source;
 `ctx.modelRegistry.hasConfiguredAuth(model)` can be used for an explicit check.
 A "usable fetch interface" is the same, additionally requiring
 `adapter.supportsUrls` and an adapter `fetch` function.
 
 The current model is usable when `isSupportedSearchModel(ctx.model)` is true and
-its adapter supports search. The current model may be used directly even if it is
+its adapter supports search and its brand's lightweight tier matches. It may
+participate even if it is
 not in `getAvailable()`, because it is the active authenticated conversation
 model.
 
@@ -216,9 +230,11 @@ model.
 
 Expose `web_search` when at least one of these is true:
 
-- the current model is a supported search model; or
-- at least one authenticated available model maps to a family adapter with
-  `supportsSearch`.
+- the current model is a supported lightweight search model; or
+- at least one authenticated available lightweight model maps to a family
+  adapter with `supportsSearch`; or
+- a standalone API is usable with a saved/environment key or explicitly
+  consented Keenable public access.
 
 Otherwise keep it hidden. To hide an already registered tool, remove
 `web_search` from the active set with `pi.setActiveTools(...)`; pi has no
@@ -231,26 +247,44 @@ with the appropriate schema when discovery changes (pi replaces a same-name tool
 definition). Keep the tool inactive until the new active set is applied. Avoid
 `promptSnippet`, `promptGuidelines`, and `prepareLoadout`.
 
-Re-evaluate on `session_start`, `session_tree`, and `model_select`. Re-evaluating
-on `turn_start` is also safe and catches login/API-key changes before the next
-model request. These handlers must not alter the system prompt.
+Re-evaluate on `session_start`, `session_tree`, `model_select`, and
+`before_agent_start`, and immediately after login or API configuration changes. These handlers must not alter the system prompt.
 
 ### 6.3 Deterministic search order
 
-Use this order, skipping unavailable or unsupported entries:
+Insert the explicit search provider preference first, if authenticated,
+lightweight, and supported, then use this automatic order. Persist provider ids
+in `better-web-search-settings.json` independently of the success cache (override
+with `PI_BETTER_WEB_SEARCH_SETTINGS`). The terminal command offers separate
+search/fetch pickers and Auto to clear either preference. Cancel leaves settings
+unchanged. Fingerprint changes and fallback successes never overwrite these
+choices; unavailable preferences are ignored until eligible again. A usable
+explicit preference gets the first attempt even after health failure or a prior
+Retry-After; it never excludes other fallback candidates.
 
-1. The current model, if its family supports search.
-2. The cached search `ProviderRef` when the cache fingerprint is current, the
-   referenced model still exists, is available, and supports search.
+Configured Keenable → Exa → Perplexity → standalone DeepSeek come after the
+explicit preference, before native model hints. Health cooldowns reorder only
+remaining automatic model routes, not explicit or standalone priorities. Dedicated
+APIs bypass model ranking, but retain attempt caps, fallback and Retry-After
+(the explicit preference bypasses previous Retry-After for its first request). Credentials are saved separately
+from settings/cache; `/pi-better-web-search login` uses only local masked input.
+Standalone DeepSeek shares dedicated HTTP Retry-After and key validation; native
+model/proxy credentials keep their own resolution path.
+
+Native automatic order, skipping unavailable or unsupported entries:
+
+1. The newest eligible lightweight model of the current provider, not
+   necessarily the conversation model.
+2. The cached search provider when the fingerprint is current, reselecting its
+   newest eligible lightweight model rather than pinning the cached model id.
 3. Adapter families in `ADAPTERS` insertion order. For each family, choose one
-   available chat model deterministically. Brand order comes first (DeepSeek,
-   OpenAI, Claude, Gemini/Gemma, other gateway brands). Brands without named
-   tiers use variant order `flash → base → pro`, then version number, newest
-   first; GPT and Claude use version first, newest first, with capability tier
-   as a tiebreaker (cheapest tier wins): OpenAI tiers are
-   `luna → terra → sol → astra` and Claude tiers are
-   `haiku → sonnet → opus → fable`. Ties fall back to the lexicographic
-   `provider/id@baseUrl` order.
+   eligible model deterministically. Brand order comes first (DeepSeek,
+   OpenAI, Claude, Gemini/Gemma, other gateway brands). Compare numeric versions
+   newest first inside each brand's required lightweight tier. Claude accepts
+   dotted and dashed minors and ignores date suffixes. Gateway models follow
+   their brand's tier/version rules, independent of the API family. Ties fall
+   back to the lexicographic `provider/id@baseUrl` order. Never fall back to a
+   non-lightweight tier, even when no lightweight model works.
 4. Prefer unrepresented provider ids, then alternate models from every
    provider, including the current model's provider, round-robin across
    families. A provider-wide failure skips its remaining candidates. Apply
@@ -266,19 +300,26 @@ fingerprint. On a provider error, append a `WebSearchAttempt` and continue. A
 provider-wide failure (auth, balance, rate limit, network failure, timeout, or
 malformed request header) marks the provider id as failed. A model-specific
 failure, including an explicit model-access 403, keeps trying siblings. On
-abort, stop immediately. Failures are remembered per phase and move candidates
-behind healthy ones for a 60-second to 10-minute exponential cooldown. Further
+abort, stop immediately. Failures are remembered per phase and move automatic
+native model routes behind healthy model routes for a 60-second to 10-minute
+exponential cooldown, without displacing explicit or standalone priorities. Further
 failures during the same cooldown do not extend it; a failed probe after expiry
-increases it. A successful operation clears the failure. If every attempt
-fails, return bounded provider errors; routing stays in `details.attempts`.
+increases it. A successful operation clears the failure. Search failure must
+not prevent independently requested fetch work. Return bounded whole-call
+errors only if no requested operation succeeds; otherwise retain successful
+data and report the search failure in `search.error`. Routing stays in
+`details.attempts`.
 
 ### 6.4 Deterministic fetch order
 
-If `urls` is present and URL fetching is allowed:
+If `urls` is present and URL fetching is allowed, insert the explicit fetch
+provider preference first under the same eligibility/auth rules as search,
+then configured Keenable → Exa → standalone DeepSeek (Perplexity is search-only),
+then this native automatic order:
 
-1. The current model, if its adapter supports URLs.
-2. The cached fetch `ProviderRef` when the fingerprint is current and the model
-   is still a usable fetch interface.
+1. The newest eligible lightweight URL-capable model of the current provider.
+2. The newest eligible lightweight URL-capable model of the cached fetch
+   provider when the fingerprint is current.
 3. Adapter families in `ADAPTERS` insertion order with `supportsUrls`.
 4. Alternate URL-capable models from every provider, mirroring search order.
    Cap actual fetch attempts at 6; preserve partial URL successes when a
@@ -286,9 +327,10 @@ If `urls` is present and URL fetching is allowed:
 
 A search and a fetch may use different providers. Keep provider/model routing
 metadata in `details`, not in the model-facing output. Preserve per-URL errors
-reported by a provider. If
-URLs were supplied but no fetch interface exists, return a clear tool error; do
-not silently drop the URLs. On a successful fetch, write the successful
+reported by a provider. If URLs were supplied but no fetch interface exists,
+report it in each `fetched[].error` when search succeeded; return a whole-call
+error only when there is no successful search or URL fetch. Do not silently
+drop failed work or replace successful data with an error. On a successful fetch, write the successful
 `cache.fetch` ref and fingerprint using the same stale-ref rules as search.
 
 ### 6.5 Cache freshness
@@ -324,11 +366,13 @@ URL validation belongs in the provider node.
 
 ## 7. Schema and description
 
-`src/schema.ts` exports:
+`lib/schema.ts` exports:
 
 - `WEB_SEARCH_TOOL_NAME = "web_search"`
-- `WEB_SEARCH_DESCRIPTION = "Search the web or analyze specified URLs."`
+- `WEB_SEARCH_DESCRIPTION`: search/fetch description with usage/evidence guidance
+- `WEB_SEARCH_QUERY_ONLY_DESCRIPTION`: search-only counterpart without fetch
 - `MAX_URLS = 20`
+- `MAX_URL_LENGTH = 8192`
 - `TSchema`
 - `buildWebSearchSchema({ allowUrls })`
 - `buildWebSearchToolDescription({ allowUrls })`
@@ -337,16 +381,26 @@ Schema variants:
 
 - `allowUrls: false`: object with required `query` (string, minLength 1).
 - `allowUrls: true`: object with optional `query` (string, minLength 1) and
-  optional `urls` (array of strings, minItems 1, maxItems 20).
+  optional `urls` (array of strings, minItems 1, maxItems 20). Each URL string
+  has minLength 1 and maxLength 8192, measured in Unicode code points.
 
-Neither variant has a top-level `anyOf`. The tool description is exactly
-`WEB_SEARCH_DESCRIPTION` for both variants. The `query` property description
-mentions combining with `urls`; the `urls` description explicitly says it can be
-used alone or together with `query`.
+Both variants set `additionalProperties: false`; runtime parsing must reject
+unknown arguments too. Neither variant has a top-level `anyOf`. The tool
+description is `WEB_SEARCH_DESCRIPTION` when URLs are usable, otherwise
+`WEB_SEARCH_QUERY_ONLY_DESCRIPTION`. Only the URL-capable variant's query
+field mentions omitting query for URL-only fetching. Query-only descriptions
+must not advertise unavailable fetch. Both URL-capable field descriptions
+explain that supplying query additionally triggers a separate web search.
+Prefer natural-language retrieval queries with relevant time scope and
+source preferences; keywords/operators remain valid. Describe refinement as
+optional when evidence is insufficient, not an automatic or fixed search chain.
+Do not impose a global numeric query limit based on the skills: the 128-code-point
+limit belongs only to DeepSeek's adapter, and Exa's 4096-character objective bound
+is not a query bound.
 
 ## 8. Output and formatting
 
-`src/format.ts` defines:
+`lib/format.ts` defines:
 
 ```ts
 // Positive, finite integer from PI_BETTER_WEB_SEARCH_MAX_CHARS, default 96,000.
@@ -355,6 +409,7 @@ export const MAX_OUTPUT_CHARS: number;
 export interface WebSearchOutput {
   query?: string;
   search?: {
+    error?: string; // Search failed while fetching succeeded.
     answer?: string;
     results?: unknown;
     citations?: unknown;
@@ -438,7 +493,7 @@ Rules:
 
 ## 9. Cache format and fingerprint
 
-`src/cache.ts`:
+`lib/cache.ts`:
 
 ```ts
 export interface ProviderRef { provider: string; model: string; }
@@ -463,8 +518,8 @@ Example file:
 {
   "version": 1,
   "fingerprint": "0123456789abcdef0123456789abcdef",
-  "search": { "provider": "deepseek", "model": "deepseek-chat" },
-  "fetch": { "provider": "ollama-cloud", "model": "gpt-oss:120b" }
+  "search": { "provider": "deepseek", "model": "deepseek-v4-flash" },
+  "fetch": { "provider": "ollama-cloud", "model": "qwen-4-flash" }
 }
 ```
 
@@ -488,7 +543,7 @@ available set and therefore the fingerprint. A changed fingerprint means
 
 ## 10. Authentication and headers
 
-`src/auth.ts`:
+`lib/auth.ts`:
 
 - `resolveAuth(ctx, model)` calls
   `ctx.modelRegistry.getApiKeyAndHeaders(model)` inside try/catch.
@@ -514,7 +569,7 @@ available set and therefore the fingerprint. A changed fingerprint means
 
 ## 11. HTTP and SSE primitives
 
-`src/providers/http.ts`:
+`lib/providers/http.ts`:
 
 - `HttpError` carries `status` and optional raw `body`.
 - `readJson(response)` parses JSON and throws a descriptive `HttpError` on
@@ -523,7 +578,7 @@ available set and therefore the fingerprint. A changed fingerprint means
   status and, when present, an OpenAI-compatible `error.message`.
 - `errorMessage(error)` and `isAbortError(error, signal?)` normalize errors.
 
-`src/providers/sse.ts` is adapted from
+`lib/providers/sse.ts` is adapted from
 `pi-web-search/src/providers/sse.ts`. `readSseEvents(response, signal, onEvent)`
 parses SSE `event:` / `data:` frames, skips malformed JSON and `[DONE]`, supports
 multi-line data, propagates abort, and stops early when the callback returns
@@ -531,7 +586,7 @@ multi-line data, propagates abort, and stops early when the callback returns
 
 ## 12. DeepSeek native Search/Fetch API
 
-The DeepSeek provider node owns `src/providers/deepseek.ts` and replaces the
+The DeepSeek adapter in `lib/providers/deepseek.ts` replaces the
 stub. Use the authenticated DeepSeek model and API key resolved by
 `resolveAuth`; do not silently send DeepSeek credentials to a different host.
 
@@ -553,7 +608,8 @@ Search request:
 - `query` is required and must be 1-128 Unicode characters. The adapter rejects
   an overlong query before credential resolution or network access. Return the
   actual length, the limit, and an instruction to shorten and retry; do not
-  truncate the query, fall back to another provider, or record a health failure.
+  truncate the query, fall back to another search provider, or record a health
+  failure. Independently requested URL fetching still runs and can succeed.
 - `count` is 1-50; use 10.
 - `need_content` is `true`.
 
@@ -632,21 +688,22 @@ primitive tests:
 node --test tests/primitives.test.mjs
 ```
 
-Tests run under Node 24 native TypeScript type stripping and import `src/*.ts`
+Tests use native TypeScript type stripping on supported Node versions and import `lib/*.ts`
 directly. Keep TypeScript erasable and keep explicit `.ts` relative import
 extensions.
 
 ## 15. Handoff checklist
 
-1. Implement `src/candidates.ts` for authenticated candidate discovery,
+1. Verify `lib/candidates.ts` for authenticated and standalone candidate discovery,
    fingerprint freshness, deterministic ordering, and exposure decisions.
-2. Implement `src/search.ts` for runtime validation, search/fetch attempts,
+2. Verify `lib/search.ts` for runtime validation, search/fetch attempts,
    cache writes, raw output assembly, truncation, and clear aggregate errors.
-3. Replace `src/index.ts` with the single `web_search` registration. Use a
+3. Keep `extensions/index.ts` to a single `web_search` registration. Use a
    direct tool that is activated or hidden through `pi.setActiveTools`, and
    re-register the schema variant when URL support changes. Do not add prompt
-   snippets, guidelines, loadout hooks, system-prompt handlers, commands,
-   providers, or another tool.
+   snippets, guidelines, loadout hooks, system-prompt handlers, providers, or
+   another tool. Keep login, API configuration and provider-preference commands
+   terminal-only; never accept API keys in command arguments.
 4. Provider nodes replace the five stub modules. Keep exported adapter names,
    capability flags, raw-result behavior, and no-retry semantics.
 5. Re-run `npm test` and `npx tsc --noEmit`.

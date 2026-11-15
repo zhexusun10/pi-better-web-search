@@ -3,6 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { resetProviderFailures } from "../lib/health.ts";
+import { resetDedicatedBackoffs } from "../lib/providers/dedicated-http.ts";
+
+// Mocked tests must never consume real dedicated API keys inherited from a shell.
+delete process.env.PERPLEXITY_API_KEY;
+delete process.env.KEENABLE_API_KEY;
+delete process.env.EXA_API_KEY;
+delete process.env.DEEPSEEK_API_KEY;
+// Never read/write the user's real saved API credentials in mocked tests.
+const testAuthDirectory = mkdtempSync(join(tmpdir(), "pi-bws-test-auth-"));
+process.env.PI_BETTER_WEB_SEARCH_AUTH = join(testAuthDirectory, "credentials.json");
+process.once("exit", () => rmSync(testAuthDirectory, { recursive: true, force: true }));
 
 export function createModel(overrides = {}) {
   return {
@@ -23,7 +34,7 @@ export function createModel(overrides = {}) {
 
 export function deepseekModel(overrides = {}) {
   return createModel({
-    id: "deepseek-chat",
+    id: "deepseek-v4-flash",
     provider: "deepseek",
     api: "anthropic-messages",
     baseUrl: "https://api.deepseek.com/anthropic",
@@ -33,7 +44,7 @@ export function deepseekModel(overrides = {}) {
 
 export function ollamaCloudModel(overrides = {}) {
   return createModel({
-    id: "gpt-oss:120b",
+    id: "qwen-4-flash",
     provider: "ollama-cloud",
     api: "openai-completions",
     baseUrl: "https://ollama.com/v1",
@@ -53,7 +64,7 @@ export function googleModel(overrides = {}) {
 
 export function openaiResponsesModel(overrides = {}) {
   return createModel({
-    id: "gpt-5.1",
+    id: "gpt-6-luna",
     provider: "openai",
     api: "openai-responses",
     baseUrl: "https://api.openai.com/v1",
@@ -63,7 +74,7 @@ export function openaiResponsesModel(overrides = {}) {
 
 export function anthropicModel(overrides = {}) {
   return createModel({
-    id: "claude-sonnet-4-5",
+    id: "claude-haiku-5-5",
     provider: "anthropic",
     api: "anthropic-messages",
     baseUrl: "https://api.anthropic.com",
@@ -73,7 +84,7 @@ export function anthropicModel(overrides = {}) {
 
 export function xaiModel(overrides = {}) {
   return createModel({
-    id: "grok-4",
+    id: "grok-4-flash",
     provider: "xai",
     api: "openai-responses",
     baseUrl: "https://api.x.ai/v1",
@@ -139,14 +150,19 @@ export function createMockCtx({
 
 export function createMockPi() {
   const tools = new Map();
+  const commands = new Map();
   const handlers = new Map();
   let activeTools = [];
 
   return {
     tools,
+    commands,
     handlers,
     registerTool(tool) {
       tools.set(tool.name, tool);
+    },
+    registerCommand(name, command) {
+      commands.set(name, command);
     },
     getActiveTools() {
       return [...activeTools];
@@ -199,10 +215,16 @@ export async function withEnv(values, fn) {
 export async function withTempCache(fn) {
   const temp = createTempCache();
   resetProviderFailures();
+  resetDedicatedBackoffs();
   try {
-    return await withEnv({ PI_BETTER_WEB_SEARCH_CACHE: temp.path }, () => fn(temp));
+    return await withEnv({
+      PI_BETTER_WEB_SEARCH_CACHE: temp.path,
+      PI_BETTER_WEB_SEARCH_SETTINGS: join(temp.directory, "settings.json"),
+      PI_BETTER_WEB_SEARCH_AUTH: join(temp.directory, "credentials.json"),
+    }, () => fn(temp));
   } finally {
     resetProviderFailures();
+    resetDedicatedBackoffs();
     temp.cleanup();
   }
 }

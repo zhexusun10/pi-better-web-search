@@ -20,8 +20,10 @@ import {
   type WebSearchAttempt,
   type WebSearchDetails,
   type WebSearchOutput,
+  type WebSearchRoute,
 } from "./format.ts";
 import {
+  candidateHealthProvider,
   clearModelFailure,
   clearProviderFailure,
   prioritizeCandidates,
@@ -29,9 +31,13 @@ import {
   recordProviderFailure,
 } from "./health.ts";
 import { QueryLengthError } from "./providers/types.ts";
-import { MAX_URLS } from "./schema.ts";
+import { MAX_URL_LENGTH, MAX_URLS } from "./schema.ts";
+import { describeRoute, routeFor } from "./routes.ts";
+import { redactDedicatedSecrets } from "./dedicated-config.ts";
+import { allowExplicitAttempt } from "./providers/dedicated-http.ts";
+import { createAttemptSignal, markAttemptOutput } from "./attempt-timeout.ts";
 
-export const DEFAULT_ATTEMPT_TIMEOUT_MS = 120_000;
+export const DEFAULT_ATTEMPT_TIMEOUT_MS = 60_000;
 
 export interface UrlValidationError {
   url: string;
@@ -55,6 +61,8 @@ interface FetchState {
 }
 
 const MAX_ERROR_DETAIL_CHARS = 8_192;
+const SEARCH_UNAVAILABLE = "No eligible search interface is available. Run /pi-better-web-search login to configure a search API, or use OpenAI luna, Claude haiku, or another brand's flash model with a supported API.";
+const FETCH_UNAVAILABLE = "URL fetch is not available in this conversation.";
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -63,6 +71,7 @@ function errorMessage(error: unknown): string {
 }
 
 function limitErrorMessage(message: string): string {
+  message = redactDedicatedSecrets(message);
   const marker = "[truncated]";
   const limited = truncateText(message, MAX_ERROR_DETAIL_CHARS);
   return limited.truncated
@@ -75,7 +84,8 @@ function summarizeUrlErrors(errors: UrlValidationError[]): string {
 }
 
 export function validateUrl(value: string): string | undefined {
-  if (value.length > 8_192) return "URL is longer than 8192 characters";
+  if (value.length === 0) return "URL must not be empty";
+  if (Array.from(value).length > MAX_URL_LENGTH) return `URL is longer than ${MAX_URL_LENGTH} characters`;
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -98,6 +108,10 @@ export function parseWebSearchInput(params: unknown): ParsedWebSearchInput {
   }
 
   const input = params as Record<string, unknown>;
+  const unknownKey = Object.keys(input).find((key) => key !== "query" && key !== "urls");
+  if (unknownKey !== undefined) {
+    return { ok: false, error: `Unknown argument ${JSON.stringify(unknownKey)}. Only "query" and "urls" are supported.` };
+  }
   if (input.query !== undefined && typeof input.query !== "string") {
     return { ok: false, error: '"query" must be a string.' };
   }
@@ -109,6 +123,9 @@ export function parseWebSearchInput(params: unknown): ParsedWebSearchInput {
   }
 
   const rawUrls = Array.isArray(input.urls) ? input.urls : [];
+  if (input.urls !== undefined && rawUrls.length === 0) {
+    return { ok: false, error: '"urls" must contain at least one URL when provided.' };
+  }
   if (rawUrls.length > MAX_URLS) {
     return { ok: false, error: `At most ${MAX_URLS} URLs are allowed (received ${rawUrls.length}).` };
   }
@@ -142,7 +159,8 @@ export function parseWebSearchInput(params: unknown): ParsedWebSearchInput {
 
 function timeoutMs(): number {
   const configured = Number(process.env.PI_BETTER_WEB_SEARCH_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0
+  // Node rejects fractional delays; values above int32 max become 1 ms timers.
+  return Number.isInteger(configured) && configured >= 1 && configured <= 0x7FFF_FFFF
     ? configured
     : DEFAULT_ATTEMPT_TIMEOUT_MS;
 }
@@ -151,21 +169,17 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }
 
-function attemptSignal(external: AbortSignal | undefined, timeout: number): AbortSignal {
-  const timer = AbortSignal.timeout(timeout);
-  return external ? AbortSignal.any([external, timer]) : timer;
-}
-
 /**
  * Adapters are expected to honor the signal, but a timeout must still release
  * the orchestrator if an implementation ignores it.
  */
 async function withSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw abortReason(signal);
-
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(abortReason(signal));
-    signal.addEventListener("abort", onAbort, { once: true });
+    // Always observe the adapter promise, even if it aborted the signal before
+    // returning. Otherwise a late rejection would be unhandled.
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
@@ -183,15 +197,21 @@ function progress(
   onUpdate: AgentToolUpdateCallback | undefined,
   text: string,
   attempts: WebSearchAttempt[],
+  activeRoute: WebSearchRoute,
 ): void {
   onUpdate?.({
     content: [{ type: "text", text }],
-    details: { attempts: [...attempts] },
+    details: { attempts: [...attempts], activeRoute },
   });
 }
 
 function attemptKey(candidate: Candidate): ProviderRef {
   return { provider: candidate.model.provider, model: candidate.model.id };
+}
+
+// Standalone and model routes can use different credentials and endpoints.
+function failureScope(candidate: Candidate): string {
+  return `${candidate.model.api === "dedicated-web-search" ? "dedicated" : "model"}:${candidate.model.provider}`;
 }
 
 /**
@@ -238,7 +258,7 @@ export function isProviderWideFailure(message: string, error?: unknown): boolean
   const status = typeof details?.status === "number" || typeof details?.status === "string"
     ? Number(details.status)
     : NaN;
-  if (status === 401 || status === 403 || status === 429 || (status >= 500 && status < 600)) return true;
+  if (status === 401 || status === 402 || status === 403 || status === 429 || (status >= 500 && status < 600)) return true;
   return PROVIDER_WIDE_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
@@ -299,25 +319,34 @@ async function runSearch(
   const failedProviders = new Set<string>();
   let attemptCount = 0;
 
-  for (const candidate of prioritizeCandidates("search", candidates)) {
+  for (const candidate of prioritizeCandidates("search", candidates, Date.now(), resolution.preferences.search)) {
     if (externalSignal?.aborted) throw abortReason(externalSignal);
-    if (failedProviders.has(candidate.model.provider)) continue;
+    if (failedProviders.has(failureScope(candidate))) continue;
     if (attemptCount >= SEARCH_ATTEMPT_CAP) break;
     attemptCount += 1;
     const attemptStartedAt = Date.now();
 
     const timeout = timeoutMs();
-    const signal = attemptSignal(externalSignal, timeout);
-    progress(onUpdate, `Searching with ${candidate.model.provider}/${candidate.model.id}...`, attempts);
+    const attempt = createAttemptSignal(externalSignal, timeout);
+    const { signal } = attempt;
+    let active = true;
+    const relayUpdate: AgentToolUpdateCallback = (...args) => {
+      if (!active || signal.aborted) return;
+      markAttemptOutput(signal);
+      onUpdate?.(...args);
+    };
+    if (candidate === candidates[0] && candidate.model.provider === resolution.preferences.search) allowExplicitAttempt(signal);
+    const route = routeFor(candidate, "search");
+    progress(onUpdate, `${describeRoute(route)}...`, attempts, route);
 
     try {
       const result = await withSignal(
-        candidate.adapter.search(resolution.ctx, candidate.model, query, signal, onUpdate),
+        candidate.adapter.search(resolution.ctx, candidate.model, query, signal, relayUpdate),
         signal,
       );
       if (externalSignal?.aborted) throw abortReason(externalSignal);
-      clearProviderFailure("search", candidate.model.provider);
-      clearModelFailure("search", candidate.model.provider, candidate.model.id);
+      clearProviderFailure("search", candidateHealthProvider(candidate));
+      clearModelFailure("search", candidateHealthProvider(candidate), candidate.model.id);
       return { candidate, result: result ?? {} };
     } catch (error) {
       if (externalSignal?.aborted) throw abortReason(externalSignal);
@@ -334,18 +363,21 @@ async function runSearch(
         message,
       });
       if (providerWide) {
-        failedProviders.add(candidate.model.provider);
-        recordProviderFailure("search", candidate.model.provider, message, Date.now(), attemptStartedAt);
+        failedProviders.add(failureScope(candidate));
+        recordProviderFailure("search", candidateHealthProvider(candidate), message, Date.now(), attemptStartedAt);
       } else {
         recordModelFailure(
           "search",
-          candidate.model.provider,
+          candidateHealthProvider(candidate),
           candidate.model.id,
           message,
           Date.now(),
           attemptStartedAt,
         );
       }
+    } finally {
+      active = false;
+      attempt.dispose();
     }
   }
 
@@ -403,7 +435,7 @@ async function runFetch(
 
   if (candidates.length === 0) {
     for (const index of remaining) {
-      states[index].error = "No URL fetch provider is available";
+      states[index].error = FETCH_UNAVAILABLE;
     }
     return { successful: 0 };
   }
@@ -416,21 +448,31 @@ async function runFetch(
   const failedProviders = new Set<string>();
   let attemptCount = 0;
 
-  for (const candidate of prioritizeCandidates("fetch", candidates)) {
+  for (const candidate of prioritizeCandidates("fetch", candidates, Date.now(), resolution.preferences.fetch)) {
     if (remaining.length === 0) break;
     if (externalSignal?.aborted) throw abortReason(externalSignal);
-    if (failedProviders.has(candidate.model.provider)) continue;
+    if (failedProviders.has(failureScope(candidate))) continue;
     if (attemptCount >= FETCH_ATTEMPT_CAP) break;
     attemptCount += 1;
     const attemptStartedAt = Date.now();
 
     const timeout = timeoutMs();
-    const signal = attemptSignal(externalSignal, timeout);
+    const attempt = createAttemptSignal(externalSignal, timeout);
+    const { signal } = attempt;
+    let active = true;
+    const relayUpdate: AgentToolUpdateCallback = (...args) => {
+      if (!active || signal.aborted) return;
+      markAttemptOutput(signal);
+      onUpdate?.(...args);
+    };
+    if (candidate === candidates[0] && candidate.model.provider === resolution.preferences.fetch) allowExplicitAttempt(signal);
     const requested = requestedOccurrences(states, remaining);
+    const route = routeFor(candidate, "fetch");
     progress(
       onUpdate,
-      `Fetching ${requested.length} URL${requested.length === 1 ? "" : "s"} with ${candidate.model.provider}/${candidate.model.id}...`,
+      `${describeRoute(route)} — fetching ${requested.length} URL${requested.length === 1 ? "" : "s"}...`,
       attempts,
+      route,
     );
 
     try {
@@ -441,7 +483,7 @@ async function runFetch(
           requested,
           query,
           signal,
-          onUpdate,
+          relayUpdate,
         ),
         signal,
       );
@@ -457,12 +499,12 @@ async function runFetch(
           model: candidate.model.id,
           message,
         });
-        failedProviders.add(candidate.model.provider);
-        recordProviderFailure("fetch", candidate.model.provider, message, Date.now(), attemptStartedAt);
+        failedProviders.add(failureScope(candidate));
+        recordProviderFailure("fetch", candidateHealthProvider(candidate), message, Date.now(), attemptStartedAt);
         for (const index of remaining) states[index].error ||= message;
       } else if (assigned.successful > 0) {
-        clearProviderFailure("fetch", candidate.model.provider);
-        clearModelFailure("fetch", candidate.model.provider, candidate.model.id);
+        clearProviderFailure("fetch", candidateHealthProvider(candidate));
+        clearModelFailure("fetch", candidateHealthProvider(candidate), candidate.model.id);
       }
 
       if (assigned.successful > 0) {
@@ -485,12 +527,12 @@ async function runFetch(
         message,
       });
       if (providerWide) {
-        failedProviders.add(candidate.model.provider);
-        recordProviderFailure("fetch", candidate.model.provider, message, Date.now(), attemptStartedAt);
+        failedProviders.add(failureScope(candidate));
+        recordProviderFailure("fetch", candidateHealthProvider(candidate), message, Date.now(), attemptStartedAt);
       } else {
         recordModelFailure(
           "fetch",
-          candidate.model.provider,
+          candidateHealthProvider(candidate),
           candidate.model.id,
           message,
           Date.now(),
@@ -500,6 +542,9 @@ async function runFetch(
       for (const index of remaining) {
         states[index].error = message;
       }
+    } finally {
+      active = false;
+      attempt.dispose();
     }
   }
 
@@ -553,36 +598,25 @@ export async function runWebSearch(
   const attempts: WebSearchAttempt[] = [];
   const resolution = resolveResolutionContext(ctx);
 
+  // Search and fetch fail independently. Only decide the overall outcome after
+  // both requested operations have had a chance to return useful data.
   let searchSuccess: SearchSuccess | undefined;
+  let searchFailure: string | undefined;
+  let queryLengthFailure = false;
   if (searchRequested) {
-    const candidates = getSearchCandidates(resolution);
-    if (candidates.length === 0) {
-      const message = "This tool is not available in this conversation.";
-      return formatError(message, { attempts, error: message });
-    }
-
     try {
       searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
     } catch (error) {
       if (!(error instanceof QueryLengthError)) throw error;
-      return formatError(error.message, { attempts, error: error.message }, "");
+      searchFailure = error.message;
+      queryLengthFailure = true;
     }
     if (!searchSuccess) {
-      const providerErrors = attemptMessages(attempts, "search");
-      const message = providerErrors || "This tool is not available in this conversation.";
-      return formatError(message, { attempts, error: message });
+      searchFailure ??= attemptMessages(attempts, "search") || SEARCH_UNAVAILABLE;
     }
   }
 
   const fetchCandidates = validFetchRequested ? getFetchCandidates(resolution, Infinity) : [];
-  if (validFetchRequested && fetchCandidates.length === 0) {
-    const message = "URL fetch is not available in this conversation.";
-    // The search half succeeded; remember it even though the URL half did not.
-    const cache = nextCache(resolution, searchSuccess?.candidate, undefined);
-    if (cache) writeCache(cache);
-    return formatError(message, { attempts, error: message });
-  }
-
   const states: FetchState[] = urls.map((url) => ({ url }));
   let fetchCandidate: Candidate | undefined;
   let fetchSuccessful = 0;
@@ -598,29 +632,53 @@ export async function runWebSearch(
     );
     fetchCandidate = fetched.candidate;
     fetchSuccessful = fetched.successful;
-
-    if (!searchRequested && fetchSuccessful === 0) {
-      const failure = attemptMessages(attempts, "fetch");
-      const urlFailure = [
-        ...states.map((state) => `${state.url}: ${state.error || "fetch failed"}`),
-        ...urlErrors.map((entry) => `${entry.url}: ${entry.error}`),
-      ].join("; ");
-      const message = `URL fetch failed. ${failure ? `${failure}. ` : ""}${urlFailure}`;
-      return formatError(message, { attempts, error: message });
-    }
   }
 
+  if (!searchSuccess && fetchSuccessful === 0) {
+    const failures: string[] = [];
+    if (searchFailure) failures.push(fetchRequested ? `Search failed. ${searchFailure}` : searchFailure);
+    if (fetchRequested) {
+      if (validFetchRequested && fetchCandidates.length === 0) {
+        failures.push(FETCH_UNAVAILABLE);
+      } else {
+        const failure = attemptMessages(attempts, "fetch");
+        const urlFailure = [
+          ...states.map((state) => `${state.url}: ${state.error || "fetch failed"}`),
+          ...urlErrors.map((entry) => `${entry.url}: ${entry.error}`),
+        ].join("; ");
+        failures.push(`URL fetch failed. ${failure ? `${failure}. ` : ""}${urlFailure}`);
+      }
+    }
+    const message = failures.join("; ");
+    return formatError(message, { attempts, error: message }, queryLengthFailure && !fetchRequested ? "" : "Failed: ");
+  }
+
+  const visibleSearchError = searchFailure ? limitErrorMessage(searchFailure) : undefined;
   const output: WebSearchOutput = {};
   if (query) output.query = query;
   if (searchSuccess) {
     output.search = { ...searchSuccess.result };
+  } else if (visibleSearchError) {
+    output.search = { error: visibleSearchError };
   }
   if (fetchRequested) {
     output.fetched = fetchOutput(states, urlErrors);
   }
 
   const searchResultCount = searchSuccess ? resultCount(searchSuccess.result) : undefined;
+  const routes: WebSearchRoute[] = searchSuccess ? [routeFor(searchSuccess.candidate, "search")] : [];
+  const seenFetchRoutes = new Set<string>();
+  for (const state of states) {
+    if (!state.provider || state.data === undefined) continue;
+    const route = routeFor(state.provider, "fetch");
+    const key = JSON.stringify(route);
+    if (seenFetchRoutes.has(key)) continue;
+    seenFetchRoutes.add(key);
+    routes.push(route);
+  }
   const details: WebSearchDetails = {
+    routes,
+    ...(visibleSearchError ? { searchError: visibleSearchError } : {}),
     ...(searchSuccess
       ? {
           provider: searchSuccess.candidate.model.provider,
@@ -640,7 +698,9 @@ export async function runWebSearch(
       : {}),
     attempts,
     ...(searchResultCount !== undefined ? { resultCount: searchResultCount } : {}),
-    ...(fetchRequested ? { fetchedCount: fetchSuccessful } : {}),
+    ...(fetchRequested
+      ? { fetchedCount: fetchSuccessful, fetchFailedCount: urls.length + urlErrors.length - fetchSuccessful }
+      : {}),
   };
 
   const cache = nextCache(

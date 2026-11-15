@@ -1,5 +1,6 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { providerFetch } from "../attempt-timeout.ts";
 import {
   baseUrlFor,
   buildRequestHeaders,
@@ -117,7 +118,7 @@ export const ollamaAdapter: ProviderAdapter = {
     const target = await resolveOllamaTarget(ctx, model);
     checkAbort(signal);
 
-    const response = await fetch(`${target.root}/api/web_search`, {
+    const response = await providerFetch(`${target.root}/api/web_search`, {
       method: "POST",
       headers: target.headers,
       body: JSON.stringify({
@@ -129,10 +130,10 @@ export const ollamaAdapter: ProviderAdapter = {
     checkAbort(signal);
 
     if (!response.ok) {
-      throw await responseError(response, "Ollama");
+      throw await responseError(response, "Ollama", target.headers);
     }
 
-    const data = await readJson<{ results?: unknown }>(response);
+    const data = await readJson<{ results?: unknown }>(response, target.headers, signal);
     checkAbort(signal);
     return { results: data?.results ?? [] };
   },
@@ -155,7 +156,7 @@ export const ollamaAdapter: ProviderAdapter = {
 
       let response: Response;
       try {
-        response = await fetch(`${target.root}/api/web_fetch`, {
+        response = await providerFetch(`${target.root}/api/web_fetch`, {
           method: "POST",
           headers: target.headers,
           body: JSON.stringify({ url }),
@@ -172,17 +173,23 @@ export const ollamaAdapter: ProviderAdapter = {
       checkAbort(signal);
 
       if (!response.ok) {
-        const httpError = await responseError(response, "Ollama");
+        const httpError = await responseError(response, "Ollama", target.headers);
         checkAbort(signal);
         if (response.status === 403 || response.status === 404) {
           entries.push({ url, error: httpError.message });
           continue;
         }
+        // Keep completed URLs when a later request hits a global outage.
+        // With no successes, retain the adapter's existing throwing contract.
+        if (entries.some((entry) => entry.data !== undefined)) {
+          entries.push({ url, error: httpError.message });
+          return { entries, providerError: httpError.message };
+        }
         throw httpError;
       }
 
       try {
-        const data = await readJson(response);
+        const data = await readJson(response, target.headers, signal);
         checkAbort(signal);
         entries.push({ url, data });
       } catch (error) {

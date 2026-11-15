@@ -138,7 +138,7 @@ test("OpenAI Responses sends the raw web search request and returns raw provider
   assert.equal(request.headers["content-type"], "application/json");
   assert.equal(request.headers.accept, "text/event-stream");
   assert.deepEqual(request.body, {
-    model: "gpt-5.1",
+    model: "gpt-6-luna",
     input: [{ role: "user", content: [{ type: "input_text", text: "OpenAI docs" }] }],
     tools: [{ type: "web_search" }],
     include: ["web_search_call.action.sources", "web_search_call.results"],
@@ -727,7 +727,7 @@ test("HTTP and SSE errors are surfaced", async (t) => {
   const model = openaiResponsesModel();
   await assert.rejects(
     openaiAdapter.search(createMockCtx({ model }), model, "HTTP error", undefined),
-    /OpenAI API error \(400 Bad Request\): bad search request/,
+    /OpenAI API error \(400 Bad Request\): \{"error":\{"message":"bad search request"\}\}/,
   );
   await assert.rejects(
     openaiAdapter.search(createMockCtx({ model }), model, "SSE error", undefined),

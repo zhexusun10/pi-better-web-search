@@ -1,7 +1,7 @@
 {
   "name": "pi-better-web-search",
-  "version": "0.1.11",
-  "description": "A better provider-native web_search tool for pi: raw results, automatic provider fallback, URL analysis, and native DeepSeek Search/Fetch.",
+  "version": "1.0.0",
+  "description": "Give pi agents the web: native Keenable, Exa, Perplexity and DeepSeek search APIs, URL fetch, raw results, and automatic provider fallback.",
   "type": "module",
   "license": "MIT",
   "author": "Jerry (zhexusun10)",
@@ -20,6 +20,9 @@
     "pi-extension",
     "web-search",
     "websearch",
+    "keenable",
+    "exa",
+    "perplexity",
     "deepseek",
     "ollama",
     "google-gemini",
@@ -55,11 +58,13 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-tui": "1.5.2",
     "@types/node": "22.19.19",
     "typebox": "1.3.27",
     "typescript": "5.9.3"
@@ -69,6 +74,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
     "test:live:deepseek": "node scripts/live-deepseek.mjs",
+    "test:live:search-apis": "node scripts/live-search-apis.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "pack": "node scripts/pack.mjs",
     "build": "npm run check && npm test && npm run verify:package && npm run pack",

@@ -13,7 +13,7 @@ import piBetterWebSearch, {
   WEB_SEARCH_TOOL_NAME,
   createWebSearchToolManager,
 } from "../extensions/index.ts";
-import { WEB_SEARCH_DESCRIPTION } from "../lib/schema.ts";
+import { WEB_SEARCH_DESCRIPTION, WEB_SEARCH_QUERY_ONLY_DESCRIPTION } from "../lib/schema.ts";
 
 function toolOf(pi) {
   return pi.tools.get(WEB_SEARCH_TOOL_NAME);
@@ -50,6 +50,7 @@ test("an available DeepSeek enables the tool and exposes optional urls", () => {
   assert.equal(tool.parameters.required, undefined);
   assert.ok(tool.parameters.properties.urls);
   assert.equal(tool.parameters.properties.urls.optional, undefined);
+  assert.equal(tool.description, WEB_SEARCH_DESCRIPTION);
   assert.equal(tool.parameters.properties.urls.minItems, 1);
   assert.equal(tool.parameters.properties.urls.maxItems, 20);
 });
@@ -68,6 +69,18 @@ test("supported current OpenAI can search but has no urls field without a URL pr
   assert.ok(pi.getActiveTools().includes(WEB_SEARCH_TOOL_NAME));
   assert.deepEqual(tool.parameters.required, ["query"]);
   assert.equal(tool.parameters.properties.urls, undefined);
+  assert.equal(tool.description, WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
+  assert.doesNotMatch(tool.description, /\bfetch\b/i);
+});
+
+test("non-light models do not expose search or URLs even with authenticated credentials", () => {
+  const pi = createMockPi();
+  const manager = createWebSearchToolManager(pi);
+  const large = deepseekModel({ id: "deepseek-v9-pro" });
+  const openai = openaiResponsesModel();
+  assert.deepEqual(manager.sync(createMockCtx({ model: large, availableModels: [large] })), { expose: false, allowUrls: false });
+  assert.deepEqual(manager.sync(createMockCtx({ model: large, availableModels: [large, openai] })), { expose: true, allowUrls: false });
+  assert.deepEqual(manager.sync(createMockCtx({ model: large, availableModels: [large, openai, deepseekModel()] })), { expose: true, allowUrls: true });
 });
 
 test("adding and removing a URL-capable provider updates the schema variant", () => {
@@ -78,6 +91,7 @@ test("adding and removing a URL-capable provider updates the schema variant", ()
 
   manager.sync(createMockCtx({ model: openai, availableModels: [openai] }));
   assert.equal(toolOf(pi).parameters.properties.urls, undefined);
+  assert.equal(toolOf(pi).description, WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
 
   manager.sync(
     createMockCtx({
@@ -87,10 +101,12 @@ test("adding and removing a URL-capable provider updates the schema variant", ()
   );
   assert.ok(toolOf(pi).parameters.properties.urls);
   assert.equal(toolOf(pi).parameters.required, undefined);
+  assert.equal(toolOf(pi).description, WEB_SEARCH_DESCRIPTION);
 
   manager.sync(createMockCtx({ model: openai, availableModels: [openai] }));
   assert.equal(toolOf(pi).parameters.properties.urls, undefined);
   assert.deepEqual(toolOf(pi).parameters.required, ["query"]);
+  assert.equal(toolOf(pi).description, WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
 });
 
 test("removing provider auth hides the tool and clears its active state", () => {
@@ -153,8 +169,8 @@ test("default export registers one well-formed tool and only schedules sync even
   const tool = toolOf(pi);
   assert.equal(tool.name, WEB_SEARCH_TOOL_NAME);
   assert.equal(tool.label, "Web Search");
-  assert.ok(tool.description.startsWith("Search the web or analyze specified URLs."));
-  assert.equal(tool.description, WEB_SEARCH_DESCRIPTION);
+  assert.equal(tool.description, WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
+  assert.doesNotMatch(tool.description, /\bfetch\b/i);
   assert.equal(tool.exposure, "direct");
   assert.equal(tool.defaultActive, false);
   assert.deepEqual(tool.annotations, { readOnlyHint: true, openWorldHint: true });

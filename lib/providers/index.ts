@@ -4,7 +4,13 @@ import { googleAdapter } from "./google.ts";
 import { ollamaAdapter } from "./ollama.ts";
 import { openaiAdapter, xaiAdapter } from "./openai.ts";
 import type { ProviderAdapter, ProviderFamily } from "./types.ts";
+import { perplexityAdapter } from "./perplexity.ts";
+import { keenableAdapter } from "./keenable.ts";
+import { exaAdapter } from "./exa.ts";
 
+export { exaAdapter } from "./exa.ts";
+export { perplexityAdapter } from "./perplexity.ts";
+export { keenableAdapter } from "./keenable.ts";
 export { anthropicAdapter } from "./anthropic.ts";
 export { deepseekAdapter } from "./deepseek.ts";
 export { googleAdapter } from "./google.ts";
@@ -30,4 +36,7 @@ export const ADAPTERS: Record<ProviderFamily, ProviderAdapter> = {
   openai: openaiAdapter,
   xai: xaiAdapter,
   anthropic: anthropicAdapter,
+  perplexity: perplexityAdapter,
+  keenable: keenableAdapter,
+  exa: exaAdapter,
 };

@@ -1,5 +1,6 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { providerFetch } from "../attempt-timeout.ts";
 import {
   baseUrlFor,
   buildRequestHeaders,
@@ -7,12 +8,16 @@ import {
   resolveAuth,
 } from "../auth.ts";
 import {
+  createRequestErrorRedactor,
   errorMessage,
+  HttpError,
   isAbortError,
   readJson,
   responseError,
 } from "./http.ts";
 import { QueryLengthError } from "./types.ts";
+import { dedicatedRequest } from "./dedicated-http.ts";
+import { MAX_URL_LENGTH } from "../schema.ts";
 import type {
   ProviderAdapter,
   ProviderFetchEntry,
@@ -22,7 +27,7 @@ import type {
 
 export const DEEPSEEK_SEARCH_COUNT = 10;
 export const DEEPSEEK_NEED_CONTENT = true;
-export const DEEPSEEK_MAX_URL_LENGTH = 8192;
+export const DEEPSEEK_MAX_URL_LENGTH = MAX_URL_LENGTH;
 export const DEEPSEEK_MAX_QUERY_LENGTH = 128;
 const DEEPSEEK_TOOL_PATHS = {
   search: "/v1/tools/search",
@@ -71,7 +76,7 @@ function validateQuery(query: string): void {
 
 function validateFetchUrl(url: string): string | undefined {
   if (typeof url !== "string" || !url) return "Invalid URL: a non-empty string is required";
-  if (url.length > DEEPSEEK_MAX_URL_LENGTH) {
+  if (Array.from(url).length > DEEPSEEK_MAX_URL_LENGTH) {
     return `Invalid URL: length must not exceed ${DEEPSEEK_MAX_URL_LENGTH} characters`;
   }
 
@@ -96,6 +101,11 @@ interface DeepSeekTarget {
   headers: Record<string, string>;
   searchUrl: string;
   fetchUrl: string;
+}
+
+/** Redact the credential actually sent, even if login rotates it in flight. */
+function redactDeepSeekError(error: unknown, target: DeepSeekTarget): Error {
+  return createRequestErrorRedactor(target.headers)(error) as Error;
 }
 
 async function resolveDeepSeekTarget(
@@ -132,6 +142,40 @@ async function resolveDeepSeekTarget(
   };
 }
 
+/** Standalone credentials use the same Retry-After and header validation as
+ * other dedicated APIs, without changing native model/proxy authentication. */
+async function fetchStandalone(urls: string[], signal?: AbortSignal): Promise<ProviderFetchResult> {
+  const entries: ProviderFetchEntry[] = [];
+  for (const url of urls) {
+    checkAbort(signal);
+    const validationError = validateFetchUrl(url);
+    if (validationError) {
+      entries.push({ url, error: validationError });
+      continue;
+    }
+    try {
+      const data = await dedicatedRequest("deepseek", `https://api.deepseek.com${DEEPSEEK_TOOL_PATHS.fetch}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      }, signal);
+      checkAbort(signal);
+      entries.push({ url, data });
+    } catch (error) {
+      rethrowAbort(error, signal);
+      const message = errorMessage(error);
+      if (error instanceof HttpError && (error.status === 403 || error.status === 404)) {
+        entries.push({ url, error: message });
+        continue;
+      }
+      if (error instanceof HttpError && !entries.some(entry => entry.data !== undefined)) throw error;
+      entries.push({ url, error: message });
+      return { entries, providerError: message };
+    }
+  }
+  return { entries };
+}
+
 export const deepseekAdapter: ProviderAdapter = {
   family: "deepseek",
   label: "DeepSeek",
@@ -149,10 +193,20 @@ export const deepseekAdapter: ProviderAdapter = {
 
     validateQuery(query);
 
+    if (model.api === "dedicated-web-search") {
+      const data = await dedicatedRequest("deepseek", `https://api.deepseek.com${DEEPSEEK_TOOL_PATHS.search}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, count: DEEPSEEK_SEARCH_COUNT, need_content: DEEPSEEK_NEED_CONTENT }),
+      }, signal);
+      checkAbort(signal);
+      return { results: data.results };
+    }
+
     const target = await resolveDeepSeekTarget(ctx, model);
     checkAbort(signal);
 
-    const response = await fetch(target.searchUrl, {
+    const response = await providerFetch(target.searchUrl, {
       method: "POST",
       headers: target.headers,
       body: JSON.stringify({
@@ -161,14 +215,20 @@ export const deepseekAdapter: ProviderAdapter = {
         need_content: DEEPSEEK_NEED_CONTENT,
       }),
       signal,
+    }).catch(error => {
+      rethrowAbort(error, signal);
+      throw redactDeepSeekError(error, target);
     });
     checkAbort(signal);
 
     if (!response.ok) {
-      throw await responseError(response, "DeepSeek");
+      throw redactDeepSeekError(await responseError(response, "DeepSeek", target.headers), target);
     }
 
-    const data = await readJson<{ results?: unknown } | null>(response);
+    const data = await readJson<{ results?: unknown } | null>(response, target.headers, signal).catch(error => {
+      rethrowAbort(error, signal);
+      throw redactDeepSeekError(error, target);
+    });
     checkAbort(signal);
     return { results: data?.results };
   },
@@ -182,6 +242,7 @@ export const deepseekAdapter: ProviderAdapter = {
     _onUpdate?: AgentToolUpdateCallback,
   ): Promise<ProviderFetchResult> {
     checkAbort(signal);
+    if (model.api === "dedicated-web-search") return fetchStandalone(urls, signal);
 
     const target = await resolveDeepSeekTarget(ctx, model);
     const entries: ProviderFetchEntry[] = [];
@@ -197,7 +258,7 @@ export const deepseekAdapter: ProviderAdapter = {
 
       let response: Response;
       try {
-        response = await fetch(target.fetchUrl, {
+        response = await providerFetch(target.fetchUrl, {
           method: "POST",
           headers: target.headers,
           body: JSON.stringify({ url }),
@@ -205,7 +266,7 @@ export const deepseekAdapter: ProviderAdapter = {
         });
       } catch (error) {
         rethrowAbort(error, signal);
-        const providerError = errorMessage(error);
+        const providerError = redactDeepSeekError(error, target).message;
         entries.push({ url, error: providerError });
         // This request reaches the provider endpoint, so a transport failure is
         // not specific to the target URL. Preserve earlier successes and stop.
@@ -214,22 +275,28 @@ export const deepseekAdapter: ProviderAdapter = {
       checkAbort(signal);
 
       if (!response.ok) {
-        const httpError = await responseError(response, "DeepSeek");
+        const httpError = redactDeepSeekError(await responseError(response, "DeepSeek", target.headers), target);
         checkAbort(signal);
         if (response.status === 403 || response.status === 404) {
           entries.push({ url, error: httpError.message });
           continue;
         }
+        // Keep completed URLs when a later request hits a global outage.
+        // With no successes, retain the adapter's existing throwing contract.
+        if (entries.some((entry) => entry.data !== undefined)) {
+          entries.push({ url, error: httpError.message });
+          return { entries, providerError: httpError.message };
+        }
         throw httpError;
       }
 
       try {
-        const data = await readJson(response);
+        const data = await readJson(response, target.headers, signal);
         checkAbort(signal);
         entries.push({ url, data });
       } catch (error) {
         rethrowAbort(error, signal);
-        entries.push({ url, error: errorMessage(error) });
+        entries.push({ url, error: redactDeepSeekError(error, target).message });
       }
     }
 

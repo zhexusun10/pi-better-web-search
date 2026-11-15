@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
+import { dedicatedKey } from "./dedicated-config.ts";
 
 export type ResolvedAuth =
   | { ok: true; apiKey?: string; headers?: Record<string, string>; baseUrl?: string }
@@ -28,6 +29,14 @@ function normalizeHeaders(headers: Record<string, HeaderValue> | undefined): Rec
  * explicit headers returned by the registry are preserved.
  */
 export async function resolveAuth(ctx: ExtensionContext, model: Model<Api>): Promise<ResolvedAuth> {
+  // Saved extension credentials are used only by our official standalone API
+  // identity, not silently forwarded to custom model gateways/proxies.
+  if (model.provider === "deepseek" && model.api === "dedicated-web-search") {
+    const apiKey = dedicatedKey("deepseek");
+    return apiKey
+      ? { ok: true, apiKey, headers: { Authorization: `Bearer ${apiKey}` } }
+      : { ok: false, error: "DeepSeek API key is unavailable. Run /pi-better-web-search login." };
+  }
   let resolved: Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>;
   try {
     resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);

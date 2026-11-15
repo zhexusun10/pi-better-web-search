@@ -56,6 +56,7 @@ import {
 import {
   MAX_URLS,
   WEB_SEARCH_DESCRIPTION,
+  WEB_SEARCH_QUERY_ONLY_DESCRIPTION,
   buildWebSearchSchema,
   buildWebSearchToolDescription,
 } from "../lib/schema.ts";
@@ -102,7 +103,7 @@ test("provider family detection follows the required precedence", () => {
   assert.equal(isSupportedSearchModel(deepseekModel()), true);
   assert.equal(isSupportedSearchModel(unsupportedLocalModel()), false);
   assert.equal(isSupportedSearchModel(createModel({ provider: "deepseek", type: "image" })), false);
-  assert.equal(describeModel(deepseekModel()), "deepseek-chat (deepseek/anthropic-messages)");
+  assert.equal(describeModel(deepseekModel()), "deepseek-v4-flash (deepseek/anthropic-messages)");
   assert.equal(getAdapterForModel(deepseekModel()), deepseekAdapter);
   assert.equal(getAdapterForFamily("openai"), openaiAdapter);
   assert.equal(getAdapterForFamily(undefined), undefined);
@@ -112,7 +113,7 @@ test("provider family detection follows the required precedence", () => {
   assert.equal(isRestFamily(undefined), false);
 });
 
-test("adapter registry exposes all six families with final capabilities", () => {
+test("adapter registry exposes native and dedicated families with final capabilities", () => {
   assert.deepEqual(Object.keys(ADAPTERS), [...PROVIDER_FAMILIES]);
   assert.deepEqual(
     PROVIDER_FAMILIES.map((family) => ADAPTERS[family].family),
@@ -126,6 +127,9 @@ test("adapter registry exposes all six families with final capabilities", () => 
     openai: { label: "OpenAI", search: true, urls: false, fetch: false },
     xai: { label: "xAI", search: true, urls: false, fetch: false },
     anthropic: { label: "Anthropic", search: true, urls: false, fetch: false },
+    perplexity: { label: "Perplexity Search", search: true, urls: false, fetch: false },
+    keenable: { label: "Keenable", search: true, urls: true, fetch: true },
+    exa: { label: "Exa Search", search: true, urls: true, fetch: true },
   };
 
   for (const [family, config] of Object.entries(expected)) {
@@ -142,7 +146,7 @@ test("adapter registry exposes all six families with final capabilities", () => 
   assert.equal(anthropicAdapter.supportsUrls, false);
 });
 
-test("all six adapters expose concrete search implementations", () => {
+test("all adapters expose concrete search implementations", () => {
   for (const [family, adapter] of Object.entries(ADAPTERS)) {
     assert.equal(typeof adapter.search, "function", family);
     assert.equal(adapter.search.constructor.name, "AsyncFunction", family);
@@ -170,12 +174,14 @@ test("schema is query-only or query+urls without a top-level anyOf", () => {
   assert.equal(withUrls.properties.urls.maxItems, 20);
   assert.equal(withUrls.properties.urls.maxItems, MAX_URLS);
   assert.match(withUrls.properties.urls.description, /alone/);
-  assert.match(withUrls.properties.urls.description, /together with query/);
+  assert.match(withUrls.properties.urls.description, /query.*separate web search/);
   assert.match(withUrls.properties.query.description, /urls/);
+  assert.match(withUrls.properties.query.description, /separate web search/);
 
-  assert.equal(buildWebSearchToolDescription({ allowUrls: false }), WEB_SEARCH_DESCRIPTION);
+  assert.equal(buildWebSearchToolDescription({ allowUrls: false }), WEB_SEARCH_QUERY_ONLY_DESCRIPTION);
   assert.equal(buildWebSearchToolDescription({ allowUrls: true }), WEB_SEARCH_DESCRIPTION);
-  assert.ok(WEB_SEARCH_DESCRIPTION.startsWith("Search the web or analyze specified URLs."));
+  assert.ok(WEB_SEARCH_DESCRIPTION.startsWith("Search the live web and return the most relevant URLs and content."));
+  assert.doesNotMatch(WEB_SEARCH_QUERY_ONLY_DESCRIPTION, /\bfetch\b/i);
 });
 
 test("truncateText is Unicode-safe and format helpers only wrap JSON", () => {
@@ -406,7 +412,7 @@ test("HTTP helpers expose status, extract OpenAI errors, and detect aborts", asy
   assert.ok(error instanceof HttpError);
   assert.equal(error.status, 429);
   assert.equal(error.code, "429");
-  assert.match(error.message, /DeepSeek API error \(429 Too Many Requests\): rate limited/);
+  assert.match(error.message, /DeepSeek API error \(429 Too Many Requests\): \{"error":\{"message":"rate limited"/);
   assert.match(error.body, /rate_limit/);
 
   const invalid = new Response("{", { status: 502, statusText: "Bad Gateway" });

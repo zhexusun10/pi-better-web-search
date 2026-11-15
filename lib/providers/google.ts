@@ -1,6 +1,7 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { baseUrlFor, buildRequestHeaders, hasAuthHeader, resolveAuth, type ResolvedAuth } from "../auth.ts";
+import { providerFetch } from "../attempt-timeout.ts";
 import { responseError } from "./http.ts";
 import { readSseEvents } from "./sse.ts";
 import type { ProviderAdapter, ProviderFetchEntry, ProviderFetchResult, ProviderSearchResult } from "./types.ts";
@@ -186,7 +187,7 @@ async function callGoogleStream(
   }
 
   const request = buildGoogleRequest(model, ctx, auth, body);
-  const response = await fetch(request.url, {
+  const response = await providerFetch(request.url, {
     method: "POST",
     headers: request.headers,
     body: JSON.stringify(request.body),
@@ -194,7 +195,7 @@ async function callGoogleStream(
   });
 
   if (!response.ok) {
-    throw await responseError(response, request.antigravity ? "Google Antigravity" : GOOGLE_LABEL);
+    throw await responseError(response, request.antigravity ? "Google Antigravity" : GOOGLE_LABEL, request.headers);
   }
 
   let text = "";
@@ -241,7 +242,7 @@ async function callGoogleStream(
     if (nextUrlContextMetadata !== undefined) {
       urlContextMetadata = nextUrlContextMetadata;
     }
-  });
+  }, request.headers);
 
   return { text, groundingMetadata, urlContextMetadata };
 }

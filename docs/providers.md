@@ -1,8 +1,12 @@
 # Providers
 
-The extension selects an adapter from the authenticated model's provider id,
-API id, and base URL. We natively support **10 distinct provider classes** (plus
-Anthropic Messages), each mapped to its native request shape, authentication,
+Two paths, one tool: **standalone Keenable, Exa, Perplexity and DeepSeek APIs**,
+plus native model-provider search. Standalone APIs need only a saved/environment
+key; see [setup and exact requests](search-apis.md).
+
+For native model routes, the extension selects an adapter from the authenticated
+model's provider id, API id, and base URL. We support **10 native provider classes
+plus Anthropic Messages**, each with its own request shape, authentication,
 stream parsing, and error behavior:
 
 | # | Provider Class | Detection | Search | URL Analysis | Interface & Endpoint |
@@ -28,10 +32,44 @@ Pi virtual models (`pi-virtual`) are not directly supported: their routed
 concrete model is not known to this extension. The normal fallback can still
 select another authenticated concrete model.
 
+## Dedicated retrieval APIs
+
+[DeepSeek, Perplexity, Keenable and Exa](search-apis.md) support independent
+saved terminal-login keys with environment fallbacks, without requiring a
+conversation model. Run `/pi-better-web-search login` to select a provider and
+save a key in a masked local terminal dialog. Standalone DeepSeek uses the
+official native endpoints; existing pi model-provider authentication is unchanged. Perplexity uses only
+`POST /search` with `search_type: "web"` (never fast), no strength/model
+parameters, and no Fetch. Keenable uses pro search and live GET Fetch, with
+optional explicitly enabled public endpoints. Exa searches with `numResults: 10`
+and nested `contents.highlights: true`, and fetches URLs via `POST /contents`
+with top-level `text: true`. Exa HTTP-200 responses are checked for per-URL
+failures; only unresolved URLs proceed to fallback.
+
+Configured **Keenable → Exa → Perplexity → standalone DeepSeek** precede
+automatic model routing (fetch skips Perplexity); explicit per-phase preferences
+still win and fallback remains enabled. Health cooldowns reorder automatic
+native routes only, not the explicit or standalone priorities. Search responses
+and each fetched raw document are preserved. These services do not participate in model-tier ranking.
+The [skill comparison](search-skills.md) explains the approved Exa options and
+why no additional model-facing parameter or prompt injection was added.
+
+## Model eligibility
+
+For model-backed interfaces, routing strictly requires OpenAI-brand `luna`, Claude-brand `haiku`, or other
+brands' `flash` tier, including gateway models and DeepSeek/Ollama credential
+candidates. Select the highest numeric version within the brand's eligible
+tier. Current models, cache hints, and fallback cannot bypass this allowlist.
+An authenticated native provider with no eligible model does not expose the
+tool on its own; configured standalone APIs remain available.
+
 ## DeepSeek
 
 DeepSeek uses the documented native Search/Fetch API rather than the older
-Anthropic-compatible chat route.
+Anthropic-compatible chat route. Neither endpoint sends a `model` parameter:
+choosing a flash candidate selects credentials/base URL, not an inference
+model. The terminal displays the actual Search or Fetch API endpoint rather
+than a misleading pro/flash chat-model label.
 
 ### Authentication and base URL
 
@@ -40,8 +78,12 @@ Authorization: Bearer <DeepSeek API Key>
 Content-Type: application/json
 ```
 
-Credentials come from pi's model registry/login flow or `DEEPSEEK_API_KEY`. The
-adapter starts from the resolved model/auth base URL and removes a trailing
+Standalone DeepSeek uses `/pi-better-web-search login` saved keys before
+`DEEPSEEK_API_KEY`, always at the official origin. It shares dedicated API
+header validation and credential-specific `Retry-After` across search/fetch.
+Native model routes still use pi's model registry/login or environment auth;
+extension-saved keys are never forwarded to custom gateways. For those routes,
+the adapter starts from the resolved model/auth base URL and removes a trailing
 `/v1`, `/anthropic`, or `/anthropic/v1` before appending the tool path. Proxy
 origins and path prefixes are preserved.
 
@@ -61,9 +103,10 @@ POST https://api.deepseek.com/v1/tools/search
 
 - `query` is 1–128 Unicode characters, not all whitespace. Longer queries
   return a model-facing error with the actual length and the 128-character
-  limit; the model should shorten the query and retry. No DeepSeek request is
-  sent, no automatic truncation or fallback occurs, and no failure cooldown is
-  recorded.
+  limit; the model should shorten the query and retry. No DeepSeek search request
+  is sent, no automatic truncation or search fallback occurs, and no failure
+  cooldown is recorded. Independently requested URL fetching still runs; a
+  successful fetch is retained with the query-length message in `search.error`.
 - `count` is within the documented 1–50 range; this package uses 10.
 - `need_content` is `true`, so `content` can contain the page body. The output
   character guard protects the model context.

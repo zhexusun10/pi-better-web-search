@@ -1,7 +1,7 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-export const PROVIDER_FAMILIES = ["deepseek", "ollama", "google", "openai", "xai", "anthropic"] as const;
+export const PROVIDER_FAMILIES = ["deepseek", "ollama", "google", "openai", "xai", "anthropic", "perplexity", "keenable", "exa"] as const;
 export type ProviderFamily = (typeof PROVIDER_FAMILIES)[number];
 
 /** A request validation error that the model can fix and retry. */
@@ -23,6 +23,8 @@ export class QueryLengthError extends Error {
 }
 
 export interface ProviderSearchResult {
+  /** Preserve standalone API metadata and unknown provider fields as-is. */
+  [key: string]: unknown;
   answer?: string;
   results?: unknown;
   citations?: unknown;
@@ -39,13 +41,15 @@ export interface ProviderFetchEntry {
 
 export interface ProviderFetchResult {
   entries: ProviderFetchEntry[];
-  /** A transport failure reaching the provider, not a failure of a target URL. */
+  /** A global HTTP/transport failure at the provider, not a target URL failure. */
   providerError?: string;
 }
 
 export interface ProviderAdapter {
   family: ProviderFamily;
   label: string;
+  /** Uses saved/environment API credentials, without a chat model or tier. */
+  standalone?: boolean;
   supportsSearch: boolean;
   supportsUrls: boolean;
   search(

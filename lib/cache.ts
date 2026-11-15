@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomically } from "./atomic-file.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isChatModel } from "./families.ts";
+import { dedicatedFingerprintEntries } from "./dedicated-config.ts";
+import { readProviderPreferences } from "./preferences.ts";
 
 export interface ProviderRef {
   provider: string;
@@ -80,9 +83,7 @@ export function writeCache(cache: PreferenceCache): boolean {
       ...(search ? { search } : {}),
       ...(fetch ? { fetch } : {}),
     };
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
-    return true;
+    return writeFileAtomically(path, `${JSON.stringify(persisted, null, 2)}\n`);
   } catch {
     return false;
   }
@@ -92,19 +93,26 @@ export function writeCache(cache: PreferenceCache): boolean {
  * Fingerprint the currently authenticated chat models. Adding or removing a
  * login/API key changes the available set, which invalidates cached choices.
  */
-export function fingerprintAvailableModels(ctx: ExtensionContext): string {
-  let models: ReturnType<ExtensionContext["modelRegistry"]["getAvailable"]> = [];
-  try {
-    const available = ctx.modelRegistry.getAvailable();
-    models = Array.isArray(available) ? available : [];
-  } catch {
-    models = [];
+export function fingerprintAvailableModels(
+  ctx: ExtensionContext,
+  snapshot?: ReturnType<ExtensionContext["modelRegistry"]["getAvailable"]>,
+  dedicatedSnapshot?: string[],
+): string {
+  let models = snapshot ?? [];
+  if (snapshot === undefined) {
+    try {
+      const available = ctx.modelRegistry.getAvailable();
+      models = Array.isArray(available) ? available : [];
+    } catch {
+      models = [];
+    }
   }
 
-  const entries = models
-    .filter((model) => isChatModel(model))
-    .map((model) => `${model.provider}/${model.id}@${model.baseUrl}`)
-    .sort();
+  const entries = [
+    ...models.filter((model) => isChatModel(model))
+      .map((model) => `${model.provider}/${model.id}@${model.baseUrl}`),
+    ...(dedicatedSnapshot ?? dedicatedFingerprintEntries(readProviderPreferences().apis)),
+  ].sort();
 
   return createHash("sha256").update(entries.join("\n")).digest("hex").slice(0, 32);
 }

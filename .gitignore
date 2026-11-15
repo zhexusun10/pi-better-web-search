@@ -11,5 +11,9 @@ npm-debug.log*
 Thumbs.db
 .pi/
 
+# Local API credentials if the storage path is overridden into a checkout.
+better-web-search-auth.json
+better-web-search-auth.json.*
+
 # Local reference checkout used while extracting the original web_search tool.
 /pi-web-search/

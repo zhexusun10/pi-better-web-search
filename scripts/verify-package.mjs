@@ -59,6 +59,19 @@ const required = [
   "lib/truncate-json.ts",
   "lib/search.ts",
   "lib/candidates.ts",
+  "lib/preferences.ts",
+  "lib/provider-command.ts",
+  "lib/api-command.ts",
+  "lib/login-command.ts",
+  "lib/credentials.ts",
+  "lib/secret-input.ts",
+  "lib/dedicated-config.ts",
+  "lib/providers/dedicated-http.ts",
+  "lib/providers/perplexity.ts",
+  "lib/providers/keenable.ts",
+  "lib/providers/exa.ts",
+  "lib/render.ts",
+  "lib/routes.ts",
   "lib/providers/deepseek.ts",
   "lib/providers/openai.ts",
   "lib/providers/anthropic.ts",
@@ -67,9 +80,12 @@ const required = [
   "docs/README.zh-CN.md",
   "docs/architecture.md",
   "docs/providers.md",
+  "docs/search-apis.md",
+  "docs/search-skills.md",
   "docs/testing.md",
   "docs/publishing.md",
   "assets/architecture.svg",
+  "assets/search-index.svg",
 ];
 const missing = required.filter((path) => !pathSet.has(path));
 if (missing.length > 0) {
@@ -81,13 +97,26 @@ const forbidden = [
   /^tests\//,
   /^scripts\//,
   /^\.github\//,
+  /^\.agents\//,
+  /^\.claude\//,
+  /^skills-lock\.json$/,
+  /(?:^|\/)skills\//,
+  /(?:^|\/)SKILL\.md$/i,
   /^node_modules\//,
   /^pi-web-search\//,
   /^DESIGN\.md$/,
   /^\.env/,
+  /(?:^|\/)better-web-search-auth\.json(?:\.|$)/,
   /\.tgz$/,
 ];
-const leaked = paths.filter((path) => forbidden.some((pattern) => pattern.test(path)));
+const normalizeCredentialPath = (path) => process.platform === "win32" ? path.toLowerCase() : path;
+const authOverride = process.env.PI_BETTER_WEB_SEARCH_AUTH?.trim();
+const credentialOverride = authOverride ? normalizeCredentialPath(resolve(root, authOverride)) : undefined;
+const leaked = paths.filter((path) => {
+  const absolute = normalizeCredentialPath(resolve(root, path));
+  return forbidden.some((pattern) => pattern.test(path))
+    || (credentialOverride && (absolute === credentialOverride || absolute.startsWith(`${credentialOverride}.`)));
+});
 if (leaked.length > 0) {
   throw new Error(`Package contains files that should not be published:\n- ${leaked.join("\n- ")}`);
 }
