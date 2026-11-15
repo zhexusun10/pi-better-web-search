@@ -10,7 +10,7 @@ providers. Keep your conversation model; get provider results as-is.
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/pi-better-web-search)](https://www.npmjs.com/package/pi-better-web-search)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Pi 1.5.2](https://img.shields.io/badge/Pi-1.5.2-blue.svg)](https://pi.dev)
+[![Pi 1.5.2 verified](https://img.shields.io/badge/Pi-1.5.2_verified-blue.svg)](docs/testing.md)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
 
 [简体中文](docs/README.zh-CN.md) · [Search APIs](docs/search-apis.md) · [Architecture](docs/architecture.md) · [Providers](docs/providers.md) · [Testing](docs/testing.md)
@@ -93,7 +93,8 @@ pi install ./path/to/pi-better-web-search
 > Do not load this package together with `pi-web-search`. Both register a tool
 > named `web_search`, and the second registration replaces the first.
 
-Requirements: **pi 1.3+** and **Node.js 22.19+**. Tested with **pi 1.5.2**.
+Requirements: **pi 1.3+** and **Node.js 22.19+**. **Pi 1.5.2 verified** with
+type checking and automated tests against pi 1.5.2 host dependencies.
 
 ## What makes it better
 
@@ -588,6 +589,8 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## Verified
 
+- **Pi 1.5.2 verified**: type checking and automated tests against pi 1.5.2
+  host dependencies, with CI passing on Node.js 22 and 24.
 - **Unit and integration tests** covering exposure, schema variants,
   provider request shapes, SSE parsing, raw-result preservation, fallback,
   cache invalidation, URL handling, truncation, and abort behavior.

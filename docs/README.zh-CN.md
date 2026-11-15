@@ -6,6 +6,8 @@
 使用 **Keenable、Exa、Perplexity 或 DeepSeek** 搜索，在支持时抓取 URL，
 并在已认证的原生 provider 之间自动回退。不换对话模型，provider 数据原样返回。
 
+[![Pi 1.5.2 verified](https://img.shields.io/badge/Pi-1.5.2_verified-blue.svg)](testing.md)
+
 [English](../README.md) · [搜索 API](search-apis.md) · [架构说明](architecture.md) · [Provider 细节](providers.md) · [测试](testing.md)
 
 ## 插件具体在做什么
@@ -78,7 +80,8 @@ pi install ./path/to/pi-better-web-search
 > 不要和 `pi-web-search` 同时加载。两者都注册 `web_search`，后注册的会覆盖
 > 先注册的。
 
-要求：**pi 1.3+**，**Node.js 22.19+**。已通过 **pi 1.5.2** 依赖测试。
+要求：**pi 1.3+**，**Node.js 22.19+**。**Pi 1.5.2 verified**：已基于 pi 1.5.2
+宿主依赖通过类型检查和自动化测试。
 
 ## 为什么更好用
 
@@ -492,6 +495,8 @@ provider；`403`/`404` 作为单个 URL 的错误上报，orchestrator 只重试
 
 ## 已验证
 
+- **Pi 1.5.2 verified**：基于 pi 1.5.2 宿主依赖通过类型检查和自动化测试，
+  Node.js 22 / 24 CI 均通过。
 - **单元/集成测试**：暴露规则、schema 变体、provider 请求形状、SSE 解析、
   原始结果保留、fallback、缓存失效、URL 处理、截断和取消。
 - **真实 DeepSeek Search/Fetch**：使用真实 API key，返回 10 条原始搜索结果、

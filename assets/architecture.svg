@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">pi-better-web-search architecture</title>
-  <desc id="desc">One web_search tool accepts a query, URLs, or both. The router honors separate search and fetch preferences, tries configured Keenable, Exa, Perplexity and DeepSeek APIs, then falls back across eligible authenticated native providers. Search and fetch preserve successful raw results independently, with a 96,000-character output guard.</desc>
+  <desc id="desc">One web_search tool accepts a query, URLs, or both. The router honors separate search and fetch preferences, tries configured Keenable, Exa, Perplexity and DeepSeek APIs, then falls back across eligible authenticated native providers. Search and fetch preserve successful raw results independently, with a 96,000-character output guard. Type checking and automated tests are verified against pi 1.5.2 host dependencies.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#52525b"/>
@@ -32,6 +32,9 @@
 
   <text class="title" x="56" y="82">pi-better-web-search</text>
   <text class="subtitle" x="56" y="116">one tool · search APIs · native fallback · raw results</text>
+
+  <rect class="box" x="980" y="54" width="160" height="30" rx="15"/>
+  <text class="p" x="1060" y="74" text-anchor="middle">Pi 1.5.2 verified</text>
 
   <rect class="box" x="56" y="150" width="220" height="124" rx="16"/>
   <text class="h" x="76" y="180">Your pi agent</text>

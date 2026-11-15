@@ -171,7 +171,9 @@ execution, provider switching, the real DeepSeek API, and cache persistence.
 
 ## CI
 
-The GitHub Actions workflow runs on Node 22 and 24:
+**Pi 1.5.2 verified** means type checking and automated tests pass against the
+pinned pi 1.5.2 host dependencies. It does not imply live verification of every
+provider. The GitHub Actions workflow runs on Node 22 and 24:
 
 ```bash
 npm ci --ignore-scripts
