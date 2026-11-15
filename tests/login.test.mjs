@@ -164,11 +164,48 @@ test("invalid keys and arguments do not leak values, save files or make HTTP req
       assert.equal(ui.notifications.at(-1).level, "warning");
       assert.match(ui.notifications.at(-1).message, /Invalid API key/);
     }
-    const ui = loginUI("exa");
-    await ui.command.handler(`login ${fakeKey}`, ui.ctx);
-    assert.equal(ui.menus.length, 0);
-    assert.match(ui.notifications.at(-1).message, /Usage:/);
-    assert.doesNotMatch(JSON.stringify(ui.notifications), /unit-test-login-secret/);
+    for (const args of [`login ${fakeKey}`, `help ${fakeKey}`, `search ${fakeKey}`]) {
+      const ui = loginUI("exa");
+      await ui.command.handler(args, ui.ctx);
+      assert.equal(ui.menus.length, 0);
+      assert.equal(ui.notifications.at(-1).level, "warning");
+      assert.match(ui.notifications.at(-1).message, /Usage:/);
+      assert.match(ui.notifications.at(-1).message, /\/web-search-provider search/);
+      assert.match(ui.notifications.at(-1).message, /\/web-search-provider fetch/);
+      assert.doesNotMatch(JSON.stringify(ui.notifications), /unit-test-login-secret/);
+    }
+  });
+});
+
+test("root/help discovers priority and API commands without opening dialogs or changing state", async (t) => {
+  await withTempCache(async () => {
+    t.mock.method(globalThis, "fetch", () => assert.fail("help must not make requests"));
+    await saveApiKey("exa", fakeKey);
+    writeProviderPreferences({ version: 1, search: "exa", fetch: "keenable", apis: { exa: true } });
+    const credentials = readFileSync(getCredentialsPath(), "utf8");
+    const settings = readFileSync(getPreferencesPath(), "utf8");
+    for (const args of ["", "help", " help "]) {
+      for (const mode of ["tui", "rpc", "print"]) {
+        const ui = loginUI("exa");
+        ui.ctx.mode = mode;
+        ui.ctx.hasUI = mode === "tui";
+        await ui.command.handler(args, ui.ctx);
+        assert.equal(ui.notifications.length, 1);
+        assert.equal(ui.notifications[0].level, "info");
+        const help = ui.notifications[0].message;
+        assert.match(help, /\/pi-better-web-search login\|logout\|status/);
+        assert.match(help, /\/web-search-provider search/);
+        assert.match(help, /\/web-search-provider fetch/);
+        assert.match(help, /\/web-search-api/);
+        assert.match(help, /automatic fallback remains enabled/);
+        assert.match(help, /Enter keys only in the hidden terminal dialog/);
+        assert.doesNotMatch(help, /unit-test-login-secret/);
+        assert.equal(ui.menus.length, 0);
+        assert.equal(ui.frames.length, 0);
+      }
+    }
+    assert.equal(readFileSync(getCredentialsPath(), "utf8"), credentials);
+    assert.equal(readFileSync(getPreferencesPath(), "utf8"), settings);
   });
 });
 

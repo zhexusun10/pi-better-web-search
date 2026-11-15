@@ -236,6 +236,9 @@ Provider 识别顺序：
 
 ## 在终端选择 provider
 
+直接运行 `/pi-better-web-search` 或 `/pi-better-web-search help`，即可查看完整终端命令：
+登录、搜索/抓取首选与 API 启用/禁用设置。
+
 运行 `/web-search-provider`，分别设置 **Web Search** 和 **URL Fetch** 的首选
 provider；也可以直接打开对应选择器：
 

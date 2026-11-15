@@ -6,17 +6,28 @@ import { promptApiKey } from "./secret-input.ts";
 
 export const LOGIN_COMMAND_NAME = "pi-better-web-search";
 
+const COMMAND_HELP = [
+  "Usage:",
+  `/${LOGIN_COMMAND_NAME} [help] — show all web search commands`,
+  `/${LOGIN_COMMAND_NAME} login|logout|status — manage saved API keys`,
+  "/web-search-provider search — choose the preferred search provider",
+  "/web-search-provider fetch — choose the preferred URL fetch provider",
+  "/web-search-api [deepseek|exa|keenable|perplexity] — enable/disable standalone APIs",
+  "Search and fetch preferences are independent. Manual preferences are tried first; automatic fallback remains enabled.",
+  "Enter keys only in the hidden terminal dialog, never in a command argument.",
+].join("\n");
+
 export function registerLoginCommand(
   pi: Pick<ExtensionAPI, "registerCommand">,
   onChanged?: (ctx: ExtensionContext) => void,
 ): void {
   pi.registerCommand(LOGIN_COMMAND_NAME, {
-    description: "Login, logout or view saved API-key status for DeepSeek, Exa, Keenable and Perplexity",
+    description: "Web search help and API login/logout/status; discover provider preferences and API settings",
     handler: async (args, ctx) => {
       const action = args.trim();
       // Never accept an API key as an argument: arguments can enter history.
       if (!["login", "logout", "status"].includes(action)) {
-        ctx.ui.notify(`Usage: /${LOGIN_COMMAND_NAME} login|logout|status. Enter keys only in the hidden terminal dialog, never in a command argument.`, "warning");
+        ctx.ui.notify(COMMAND_HELP, !action || action === "help" ? "info" : "warning");
         return;
       }
       if (!ctx.hasUI || ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {

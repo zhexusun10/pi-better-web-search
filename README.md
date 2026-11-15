@@ -276,6 +276,9 @@ support per family.
 
 ## Choose providers in the terminal
 
+Run `/pi-better-web-search` or `/pi-better-web-search help` to list all terminal
+commands, including login, search/fetch preferences, and API enable/disable settings.
+
 Run `/web-search-provider` to choose a preferred provider separately for
 **Web Search** and **URL Fetch**. Or open either picker directly:
 
