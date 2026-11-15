@@ -1,15 +1,11 @@
 # pi-better-web-search
 
-**Stop reinventing. Start searching.**
+**One tool. Every provider. Raw results.**
 
-Give your [pi](https://pi.dev) agent the web—not just a model's memory.
-**One `web_search` tool. Leading independent search APIs. Native provider fallback.
-Raw evidence, ready to use.**
-
-Our biggest search upgrade yet brings **Keenable, Exa, and Perplexity—the top
-three independent search providers in the Artificial Analysis snapshot below—plus
-DeepSeek's native Search/Fetch** straight into pi. Keep your favorite conversation
-model. Give it a much better way to find answers.
+A [pi](https://pi.dev) extension that adds exactly one model-callable tool:
+`web_search`. Search with **Keenable, Exa, Perplexity, or DeepSeek**, fetch URLs
+when supported, and automatically fall back across authenticated native
+providers. Keep your conversation model; get provider results as-is.
 
 [![CI](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml/badge.svg)](https://github.com/zhexusun10/pi-better-web-search/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/pi-better-web-search)](https://www.npmjs.com/package/pi-better-web-search)
@@ -18,6 +14,15 @@ model. Give it a much better way to find answers.
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933.svg)](https://nodejs.org)
 
 [简体中文](docs/README.zh-CN.md) · [Search APIs](docs/search-apis.md) · [Architecture](docs/architecture.md) · [Providers](docs/providers.md) · [Testing](docs/testing.md)
+
+## How it works
+
+![pi-better-web-search: one tool, standalone search APIs, native provider fallback, and raw results](assets/architecture.svg)
+
+Your agent calls `web_search` with a query, URLs, or both. The router honors
+per-phase provider preferences, tries configured search APIs, and falls back to
+eligible native providers. Search and fetch keep their successful results
+independently; raw provider data goes straight back to the agent.
 
 ## Search is an agent superpower
 
@@ -28,7 +33,7 @@ The Artificial Analysis Search Index makes the difference visible: the dashed
 Perplexity at **80**. All three independent providers score ahead of the
 integrated **OpenAI Web Search result at 74** in this snapshot.
 
-![Artificial Analysis Search Index: model-only 33, Keenable Pro 83, Exa auto 80, Perplexity medium 80, OpenAI Web Search 74, DeepSeek summary 69](assets/search-index.svg)
+![Artificial Analysis Search Index: model-only 33, Keenable Pro 83, Exa auto 80, Perplexity medium 80, OpenAI Web Search 74, DeepSeek summary 69](assets/search-index.png)
 
 *Source: [Artificial Analysis Search Index](https://artificialanalysis.ai/agents/search-api),
 15 Nov 2026 screenshot. Scores combine DeepSearchQA F1, BrowseComp accuracy and
@@ -302,8 +307,6 @@ from the automatic success cache: fallback successes and fingerprint changes
 never overwrite them. Unavailable choices are ignored until eligible again.
 
 ## Automatic selection and fallback
-
-![Standalone search APIs, native fallback, and independent raw results](assets/architecture.svg)
 
 Dedicated retrieval APIs have no chat-model tier and can expose the tool on
 their own. For model-backed interfaces, only lightweight models are eligible:

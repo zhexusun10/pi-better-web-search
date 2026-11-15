@@ -9,7 +9,7 @@ This release brings the **three leading independent providers in the
 [Artificial Analysis snapshot](https://artificialanalysis.ai/agents/search-api)**
 into pi: **Keenable Pro (83), Exa auto (80), and Perplexity medium (80)**, alongside
 native DeepSeek Search/Fetch. The no-search baseline is **33**; integrated OpenAI
-Web Search scores **74**. See the [release chart](../assets/search-index.svg)
+Web Search scores **74**. See the [original screenshot](../assets/search-index.png)
 (15 Nov 2026 snapshot) and [benchmark methodology](https://artificialanalysis.ai/methodology/search-api).
 
 ## Interfaces

@@ -85,7 +85,7 @@ const required = [
   "docs/testing.md",
   "docs/publishing.md",
   "assets/architecture.svg",
-  "assets/search-index.svg",
+  "assets/search-index.png",
 ];
 const missing = required.filter((path) => !pathSet.has(path));
 if (missing.length > 0) {

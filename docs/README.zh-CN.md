@@ -1,15 +1,20 @@
 # pi-better-web-search
 
-**别再重复造轮子。先搜，再做。**
+**一个工具，所有 provider，原始结果。**
 
-让你的 [pi](https://pi.dev) agent 用上整个互联网，而不只是模型的记忆。
-**一个 `web_search`，顶尖独立搜索 API，原生 provider 自动回退，原始证据直接到手。**
-
-这是我们迄今最大的一次搜索能力升级：**原生接入 Artificial Analysis 榜单快照中
-前三家独立搜索服务 Keenable、Exa、Perplexity，再加上 DeepSeek Search/Fetch。**
-不换对话模型，也能给 agent 装上更强的搜索引擎。
+这是一个 [pi](https://pi.dev) 扩展，只新增一个模型可调用的工具：`web_search`。
+使用 **Keenable、Exa、Perplexity 或 DeepSeek** 搜索，在支持时抓取 URL，
+并在已认证的原生 provider 之间自动回退。不换对话模型，provider 数据原样返回。
 
 [English](../README.md) · [搜索 API](search-apis.md) · [架构说明](architecture.md) · [Provider 细节](providers.md) · [测试](testing.md)
+
+## 插件具体在做什么
+
+![pi-better-web-search：一个工具、独立搜索 API、原生 provider 回退与原始结果](../assets/architecture.svg)
+
+Agent 调用 `web_search`，传入 query、URLs 或两者。路由器先尊重搜索/抓取各自的
+手动首选，再尝试已配置的搜索 API，必要时回退到合格的原生 provider。
+搜索和抓取分别保留成功结果，provider 的原始数据直接交回 agent。
 
 ## Search，是 agent 的巨大 buff
 
@@ -19,7 +24,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 **Keenable Pro 达到 83 分**，Exa 和 Perplexity 都达到 **80 分**。
 这三家独立搜索服务均明显高于同一快照中 **OpenAI Web Search 的 74 分**。
 
-![Artificial Analysis Search Index：纯模型 33、Keenable Pro 83、Exa auto 80、Perplexity medium 80、OpenAI Web Search 74、DeepSeek summary 69](../assets/search-index.svg)
+![Artificial Analysis Search Index：纯模型 33、Keenable Pro 83、Exa auto 80、Perplexity medium 80、OpenAI Web Search 74、DeepSeek summary 69](../assets/search-index.png)
 
 *来源：[Artificial Analysis Search Index](https://artificialanalysis.ai/agents/search-api)，
 2026 年 11 月 15 日截图；综合 DeepSearchQA F1、BrowseComp 准确率和 AA-Omniscience
@@ -256,8 +261,6 @@ URL 抓取只重试未成功的 URL；输入校验和取消行为保持不变。
 变化都不会覆盖手动选择。暂时不可用的首选会被跳过，重新满足条件后恢复优先级。
 
 ## 自动选择与 fallback
-
-![独立搜索 API、原生 provider 回退与独立保留的原始结果](../assets/architecture.svg)
 
 模型接口严格限定轻量档位：**OpenAI 只用 `luna`，Claude 只用 `haiku`，DeepSeek 和其他
 品牌只用 `flash`**。这是名称白名单，不是实时价格判断。搜索、URL 分析、当前模型、
