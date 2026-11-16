@@ -25,13 +25,14 @@ async function withKeys(keys, fn) {
   return withTempCache(() => withEnv({ PERPLEXITY_API_KEY: undefined, KEENABLE_API_KEY: undefined, ...keys }, fn));
 }
 
-test("Perplexity uses raw standard Search API, never fast, effort, model, tools or Agent API", async (t) => {
+test("Perplexity standard Search API preserves server_time and source dates while omitting request id", async (t) => {
   await withKeys({ PERPLEXITY_API_KEY: fakePerplexity }, async () => {
     const search = {
       results: [{ title: "raw", url: page, snippet: "text", date: "2026-01-01", last_updated: "2026-01-02", extra: { id: "source-id", server_time: "page content" } }],
+      server_time: "2026-01-02T03:04:05Z",
       unknown: [1],
     };
-    const raw = { ...search, id: "search-id", server_time: "now" };
+    const raw = { ...search, id: "search-id" };
     t.mock.method(globalThis, "fetch", async (url, init) => {
       assert.equal(String(url), "https://api.perplexity.ai/search");
       assert.equal(init.method, "POST");

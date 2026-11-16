@@ -26,12 +26,14 @@ Successful responses omit known API bookkeeping before reaching the model:
 | Provider | Omitted fields |
 |---|---|
 | Keenable search and fetch | `usage` (billing, credits and remaining balance) |
-| Perplexity search | `id`, `server_time` (request tracking and server timing) |
+| Perplexity search | `id` (request tracking) |
 | Exa search | `requestId`, `costDollars`, `searchTime`, `warnings`, `resolvedSearchType` |
 
 This filtering is shallow and provider-specific. Result objects, page text,
 source dates, scores, citations, truncation indicators and unknown fields remain
-unchanged. Exa `notices` are retained because they explain how results were
+unchanged. Provider timestamps such as Perplexity `server_time` are retained
+verbatim; Exa `searchTime` is a processing duration and remains omitted.
+Exa `notices` are retained because they explain how results were
 produced; `warnings` are request diagnostics and `resolvedSearchType` is deprecated.
 Exa fetch already returns individual documents rather than the response envelope.
 Native model adapters select search results, answers and source evidence without
@@ -65,9 +67,9 @@ The request is exactly:
 
 Authorization is `Bearer <PERPLEXITY_API_KEY>`. **Fast search is not used.**
 There is no `effort`, `preset`, `model`, `tools`, conversation state or generated
-answer. Neither Agent nor Orchestrator APIs are called. `results` and unknown
-fields are returned inside `search` without rewriting the results; the outer
-request `id` and `server_time` are omitted.
+answer. Neither Agent nor Orchestrator APIs are called. `results`, `server_time`
+and unknown fields are returned inside `search` without rewriting the results;
+only the outer request `id` is omitted.
 
 Perplexity alone exposes a query-only schema. Configure Keenable or an existing
 URL-capable provider to add `urls`; a combined call can search with Perplexity
@@ -114,7 +116,7 @@ With `X-API-Key: <EXA_API_KEY>`, search sends the user-approved request:
 ```
 
 `type` is omitted (server default `auto`). Raw `results`/highlights, `notices`
-and unknown fields are preserved. Request tracking, cost, timing, request
+and unknown fields are preserved. Request tracking, cost, processing duration, request
 warnings and the deprecated resolved search type are omitted as listed above.
 There is no chat model, SDK, Answer/Agent API or generated objective. The
 model-facing contract stays `query` / `urls`; other advanced options remain

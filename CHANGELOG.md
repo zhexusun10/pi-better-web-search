@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 — Preserve provider timestamps
+
+### Fixes
+
+- Restore Perplexity `server_time` in model-facing search results. Preserve
+  provider timestamps and source dates verbatim while continuing to omit Exa
+  `searchTime` processing duration and the existing billing/request metadata.
+
 ## 1.0.2 — Cleaner search results
 
 ### Fixes

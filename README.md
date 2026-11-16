@@ -63,7 +63,7 @@ Built to be the web-search tool you reach for first:
 
 ## Install and search
 
-**Version 1.0.2 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.2).
+**Version 1.0.3 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.3).
 
 ```bash
 pi install npm:pi-better-web-search
@@ -465,9 +465,9 @@ tool call.
 ## Raw provider results
 
 Provider content is returned in a JSON wrapper, with known billing, request
-tracking and timing fields omitted from standalone API responses. Search results,
-page text and source evidence retain their provider fields. A search looks like
-this:
+tracking and processing time fields omitted from standalone API responses.
+Provider timestamps such as `server_time`, search results, page text and source
+evidence retain their provider values. A search looks like this:
 
 ```json
 {
@@ -495,8 +495,9 @@ this:
   sections are appended.
 - Redirects are not resolved and sources are not derived.
 - Known standalone API bookkeeping is omitted: Keenable `usage`, Perplexity
-  `id` / `server_time`, and Exa `requestId` / `costDollars` / `searchTime` /
-  `warnings` / `resolvedSearchType`. Exa `notices` remain available to the model.
+  `id`, and Exa `requestId` / `costDollars` / `searchTime` / `warnings` /
+  `resolvedSearchType`. Provider `server_time` values and Exa `notices` remain
+  available to the model.
   See [response metadata handling](docs/search-apis.md#interfaces).
 - Unknown provider fields are preserved when the result fits the size guard.
 
@@ -654,7 +655,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-1.0.2.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-1.0.3.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

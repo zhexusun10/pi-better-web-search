@@ -53,7 +53,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 
 ## 安装，登录，开搜
 
-**1.0.2 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.2)。
+**1.0.3 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.3)。
 
 ```bash
 pi install npm:pi-better-web-search
@@ -396,7 +396,8 @@ rm ~/.pi/agent/better-web-search.json
 ## 原始结果
 
 Provider 内容放在 JSON 外层中返回。独立 API 响应中已知的计费、请求追踪和
-耗时字段会裁掉；搜索结果、网页正文和来源证据保留 provider 的原始字段。示例：
+处理耗时字段会裁掉；`server_time` 等时间戳、搜索结果、网页正文和来源证据
+保留 provider 的原始值。示例：
 
 ```json
 {
@@ -423,8 +424,9 @@ Provider 内容放在 JSON 外层中返回。独立 API 响应中已知的计费
 - 不插入 citation 标记，不追加 "Sources" 或 "Additional results"。
 - 不解析 redirect，不派生 sources。
 - 裁掉独立 API 的已知无关字段：Keenable 的 `usage`，Perplexity 的
-  `id` / `server_time`，以及 Exa 的 `requestId` / `costDollars` / `searchTime` /
-  `warnings` / `resolvedSearchType`。Exa 的 `notices` 解释结果生成方式，继续保留。
+  `id`，以及 Exa 的 `requestId` / `costDollars` / `searchTime` /
+  `warnings` / `resolvedSearchType`。provider 的 `server_time` 时间戳原样保留；
+  Exa 的 `notices` 解释结果生成方式，也继续保留。
   只处理响应外层，不递归删除结果或正文中的同名字段，详见[响应元数据处理](search-apis.md#interfaces)。
 - 未超出大小限制时，provider 的未知字段也会保留。
 
@@ -549,7 +551,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-1.0.2.tgz`。不会自动发布。
+`dist/pi-better-web-search-1.0.3.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。

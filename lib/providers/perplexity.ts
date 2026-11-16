@@ -16,6 +16,6 @@ export const perplexityAdapter: ProviderAdapter = {
       body: JSON.stringify({ query, search_type: "web", max_results: 10 }),
     }, signal);
     if (!Array.isArray(data.results)) throw new Error("Perplexity Search returned no results array");
-    return omitResponseMetadata(data, ["id", "server_time"]);
+    return omitResponseMetadata(data, ["id"]);
   },
 };
