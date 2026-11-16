@@ -1,6 +1,7 @@
 import { dedicatedKey } from "../dedicated-config.ts";
 import { redactSecrets } from "../redact.ts";
 import { dedicatedRequest } from "./dedicated-http.ts";
+import { omitResponseMetadata } from "./response-metadata.ts";
 import type { ProviderAdapter } from "./types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -31,7 +32,7 @@ export const exaAdapter: ProviderAdapter = {
       body: JSON.stringify({ query, numResults: 10, contents: { highlights: true } }),
     }, signal);
     if (!Array.isArray(data.results)) throw new Error("Exa Search returned no results array");
-    return data;
+    return omitResponseMetadata(data, ["requestId", "costDollars", "searchTime", "warnings", "resolvedSearchType"]);
   },
   async fetch(_ctx, _model, urls, _query, signal) {
     // Capture the credential before awaiting HTTP; login may rotate it while

@@ -1,6 +1,7 @@
 import { readProviderPreferences } from "../preferences.ts";
 import { dedicatedRequest } from "./dedicated-http.ts";
 import { errorMessage, HttpError, isAbortError } from "./http.ts";
+import { omitResponseMetadata } from "./response-metadata.ts";
 import type { ProviderAdapter, ProviderFetchEntry } from "./types.ts";
 
 function endpoint(operation: "search" | "fetch", hasKey: boolean): string {
@@ -27,7 +28,7 @@ export const keenableAdapter: ProviderAdapter = {
       body: JSON.stringify({ query, mode: "pro", max_results: 10 }),
     }, signal);
     if (!Array.isArray(data.results)) throw new Error("Keenable returned no results array");
-    return data;
+    return omitResponseMetadata(data, ["usage"]);
   },
   async fetch(_ctx, _model, urls, _query, signal) {
     const entries: ProviderFetchEntry[] = [];
@@ -42,7 +43,7 @@ export const keenableAdapter: ProviderAdapter = {
         if (typeof data.content !== "string" || typeof data.url !== "string") {
           entries.push({ url, error: "Keenable returned no URL or page content" });
         } else {
-          entries.push({ url, data });
+          entries.push({ url, data: omitResponseMetadata(data, ["usage"]) });
         }
       } catch (error) {
         if (isAbortError(error, signal)) throw error;

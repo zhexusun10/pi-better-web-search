@@ -20,11 +20,16 @@ const ctx = () => createMockCtx({ availableModels: [] });
 const providers = candidates => candidates.map(candidate => candidate.model.provider);
 const withExa = fn => withTempCache(() => withEnv({ EXA_API_KEY: key }, fn));
 
-test("Exa sends the approved count and highlights to /search and preserves the entire response", async (t) => {
+test("Exa search omits API bookkeeping while preserving highlights, notices and unknown content", async (t) => {
   await withExa(async () => {
+    const search = {
+      results: [{ id: page, title: "Page", url: page, publishedDate: "2026-01-01", author: "Author", score: 0.98, highlights: ["raw excerpt"], extra: { requestId: "source-id", costDollars: "page content" } }],
+      notices: [{ tag: "RESULTS_FROM_CACHE", message: "Some results were served from the index." }],
+      unknown: { preserved: true },
+    };
     const raw = {
-      requestId: "request-1", results: [{ title: "Page", url: page, publishedDate: "2026-01-01", author: "Author", highlights: ["raw excerpt"], extra: true }],
-      costDollars: { total: 0.01 }, searchTime: 0.12, unknown: { preserved: true },
+      ...search, requestId: "request-1", costDollars: { total: 0.01 }, searchTime: 0.12,
+      warnings: [{ tag: "IGNORED_FIELD", message: "A deprecated request field was ignored." }], resolvedSearchType: "",
     };
     t.mock.method(globalThis, "fetch", async (url, init) => {
       assert.equal(String(url), "https://api.exa.ai/search");
@@ -44,7 +49,7 @@ test("Exa sends the approved count and highlights to /search and preserves the e
     t.mock.method(context.modelRegistry, "getApiKeyAndHeaders", () => assert.fail("Exa must not need a chat-model credential"));
     const result = await runWebSearch({ query: " natural language query " }, context);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "natural language query", search: raw });
+    assert.deepEqual(JSON.parse(result.content[0].text), { query: "natural language query", search });
     assert.deepEqual(result.details.routes, [{ phase: "search", provider: "exa", endpoint: "/search" }]);
     assert.equal(result.details.resultCount, 1);
     assert.equal(readCache().search.provider, "exa");
@@ -127,7 +132,7 @@ test("Exa search survives missing page content and an empty search is successful
     const result = await runWebSearch({ query: "query", urls: [page] }, ctx());
     assert.equal(result.isError, undefined);
     const output = JSON.parse(result.content[0].text);
-    assert.deepEqual(output.search, { requestId: "empty", results: [] });
+    assert.deepEqual(output.search, { results: [] });
     assert.match(output.fetched[0].error, /no page text/);
   });
 });

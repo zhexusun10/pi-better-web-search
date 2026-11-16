@@ -30,7 +30,7 @@ local `pi-web-search` reference checkout, `.env` files, and `DESIGN.md`.
 npm run build
 ```
 
-This produces `dist/pi-better-web-search-1.0.1.tgz`. The tarball is not
+This produces `dist/pi-better-web-search-1.0.2.tgz`. The tarball is not
 committed.
 
 ## Publish
@@ -42,7 +42,7 @@ npm publish --access public
 Alternatively, publish the verified tarball directly:
 
 ```bash
-npm publish dist/pi-better-web-search-1.0.1.tgz --access public
+npm publish dist/pi-better-web-search-1.0.2.tgz --access public
 ```
 
 When publishing from the checkout, `prepublishOnly` reruns the checks, tests,
@@ -52,10 +52,10 @@ build` first to verify it. npm may require browser or OTP authentication.
 ## Tag and release
 
 ```bash
-git tag -a v1.0.1 -m "v1.0.1"
-git push origin v1.0.1
-gh release create v1.0.1 dist/pi-better-web-search-1.0.1.tgz \
-  --title "v1.0.1" \
+git tag -a v1.0.2 -m "v1.0.2"
+git push origin v1.0.2
+gh release create v1.0.2 dist/pi-better-web-search-1.0.2.tgz \
+  --title "v1.0.2" \
   --notes-file /path/to/release-notes.md
 ```
 

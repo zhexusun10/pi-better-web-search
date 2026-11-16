@@ -49,8 +49,10 @@ failures; only unresolved URLs proceed to fallback.
 Configured **Keenable → Exa → Perplexity → standalone DeepSeek** precede
 automatic model routing (fetch skips Perplexity); explicit per-phase preferences
 still win and fallback remains enabled. Health cooldowns reorder automatic
-native routes only, not the explicit or standalone priorities. Search responses
-and each fetched raw document are preserved. These services do not participate in model-tier ranking.
+native routes only, not the explicit or standalone priorities. Search content
+and each fetched raw document are preserved, with known API bookkeeping omitted
+as described in [response metadata handling](search-apis.md#interfaces). These
+services do not participate in model-tier ranking.
 The [skill comparison](search-skills.md) explains the approved Exa options and
 why no additional model-facing parameter or prompt injection was added.
 
@@ -286,6 +288,7 @@ a per-URL error.
    preservation, search evidence, errors, aborts, and URL behavior.
 6. Update this document, `README.md`, and `CHANGELOG.md`.
 
-Keep provider results raw. If the provider returns an answer, keep it as the
+Keep provider content raw, apart from the documented response-level API
+bookkeeping omissions. If the provider returns an answer, keep it as the
 provider returned it. If it returns result objects, preserve their fields and
 order. Do not add a normalization layer.

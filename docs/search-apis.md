@@ -21,6 +21,23 @@ Web Search scores **74**. See the [original screenshot](../assets/search-index.p
 | Keenable | `POST https://api.keenable.ai/v1/search` | `GET https://api.keenable.ai/v1/fetch` | `KEENABLE_API_KEY` or explicit public access |
 | Exa | `POST https://api.exa.ai/search` | `POST https://api.exa.ai/contents` | `EXA_API_KEY` |
 
+Successful responses omit known API bookkeeping before reaching the model:
+
+| Provider | Omitted fields |
+|---|---|
+| Keenable search and fetch | `usage` (billing, credits and remaining balance) |
+| Perplexity search | `id`, `server_time` (request tracking and server timing) |
+| Exa search | `requestId`, `costDollars`, `searchTime`, `warnings`, `resolvedSearchType` |
+
+This filtering is shallow and provider-specific. Result objects, page text,
+source dates, scores, citations, truncation indicators and unknown fields remain
+unchanged. Exa `notices` are retained because they explain how results were
+produced; `warnings` are request diagnostics and `resolvedSearchType` is deprecated.
+Exa fetch already returns individual documents rather than the response envelope.
+Native model adapters select search results, answers and source evidence without
+forwarding response-level token usage. HTTP errors retain their diagnostic details
+for normal fallback and troubleshooting.
+
 ### DeepSeek: native Search/Fetch
 
 Terminal login works without a pi chat model. Both native endpoints use the
@@ -48,9 +65,9 @@ The request is exactly:
 
 Authorization is `Bearer <PERPLEXITY_API_KEY>`. **Fast search is not used.**
 There is no `effort`, `preset`, `model`, `tools`, conversation state or generated
-answer. Neither Agent nor Orchestrator APIs are called. The whole response,
-including `results`, `id`, `server_time` and unknown fields, is returned inside
-`search` without rewriting the results.
+answer. Neither Agent nor Orchestrator APIs are called. `results` and unknown
+fields are returned inside `search` without rewriting the results; the outer
+request `id` and `server_time` are omitted.
 
 Perplexity alone exposes a query-only schema. Configure Keenable or an existing
 URL-capable provider to add `urls`; a combined call can search with Perplexity
@@ -65,7 +82,8 @@ unauthenticated Perplexity request.
 
 Search sends `{ "query": "...", "mode": "pro", "max_results": 10 }`, not the
 fast `realtime` mode. Fetch uses GET with URL-encoded `url` and `live=true`,
-without an LLM extraction `prompt`. Response objects and metadata are preserved.
+without an LLM extraction `prompt`. Response content and source metadata are
+preserved; the outer billing `usage` object is omitted from both operations.
 Keyed requests use `X-API-Key: <KEENABLE_API_KEY>`.
 
 Without a key, explicit public access uses `/v1/search/public` and
@@ -95,11 +113,12 @@ With `X-API-Key: <EXA_API_KEY>`, search sends the user-approved request:
 }
 ```
 
-`type` is omitted (server default `auto`). The complete response, including
-`requestId`, raw `results`/highlights, `costDollars`, `searchTime` and unknown
-fields, is preserved. There is no chat model, SDK, Answer/Agent API or generated
-objective. The model-facing contract stays `query` / `urls`; other advanced
-options remain off. See the [skill comparison and decision table](search-skills.md).
+`type` is omitted (server default `auto`). Raw `results`/highlights, `notices`
+and unknown fields are preserved. Request tracking, cost, timing, request
+warnings and the deprecated resolved search type are omitted as listed above.
+There is no chat model, SDK, Answer/Agent API or generated objective. The
+model-facing contract stays `query` / `urls`; other advanced options remain
+off. See the [skill comparison and decision table](search-skills.md).
 
 URL-only calls use `POST /contents` without performing a search:
 

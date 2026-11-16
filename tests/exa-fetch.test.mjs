@@ -26,7 +26,7 @@ test("Exa URL-only fetch batches /contents with top-level text, raw documents an
       assert.equal(init.headers.get("Content-Type"), "application/json");
       assert.deepEqual(JSON.parse(init.body), { urls: [page, other], text: true });
       assert.ok(init.signal instanceof AbortSignal);
-      return json({ results: pages, statuses: [other, page].map(id => ({ id, status: "success" })) });
+      return json({ requestId: "fetch-1", costDollars: { total: 0.01 }, searchTime: 0.12, results: pages, statuses: [other, page].map(id => ({ id, status: "success" })) });
     });
     const result = await runWebSearch({ urls: [page, other] }, ctx());
     assert.equal(result.isError, undefined);
@@ -41,14 +41,14 @@ test("Exa URL-only fetch batches /contents with top-level text, raw documents an
 test("Exa combined calls keep search highlights separate from full-text fetch", async (t) => {
   await withExa(async () => {
     const calls = [];
-    const search = { requestId: "search-1", results: [{ url: page, highlights: ["excerpt"], extra: true }] };
+    const search = { results: [{ url: page, highlights: ["excerpt"], extra: true }] };
     const document = { id: page, url: page, text: "full page", extra: [1, 2] };
     t.mock.method(globalThis, "fetch", async (url, init) => {
       const path = new URL(url).pathname;
       calls.push(path);
       if (path === "/search") {
         assert.deepEqual(JSON.parse(init.body), { query: "query", numResults: 10, contents: { highlights: true } });
-        return json(search);
+        return json({ ...search, requestId: "search-1" });
       }
       assert.deepEqual(JSON.parse(init.body), { urls: [page], text: true });
       return json({ results: [document], statuses: [{ id: page, status: "success" }] });

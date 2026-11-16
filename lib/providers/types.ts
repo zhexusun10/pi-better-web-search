@@ -23,7 +23,7 @@ export class QueryLengthError extends Error {
 }
 
 export interface ProviderSearchResult {
-  /** Preserve standalone API metadata and unknown provider fields as-is. */
+  /** Preserve result content and unknown fields, omitting known API bookkeeping. */
   [key: string]: unknown;
   answer?: string;
   results?: unknown;

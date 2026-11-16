@@ -27,7 +27,11 @@ async function withKeys(keys, fn) {
 
 test("Perplexity uses raw standard Search API, never fast, effort, model, tools or Agent API", async (t) => {
   await withKeys({ PERPLEXITY_API_KEY: fakePerplexity }, async () => {
-    const raw = { results: [{ title: "raw", url: page, snippet: "text", extra: { preserved: true } }], id: "search-id", server_time: "now", unknown: [1] };
+    const search = {
+      results: [{ title: "raw", url: page, snippet: "text", date: "2026-01-01", last_updated: "2026-01-02", extra: { id: "source-id", server_time: "page content" } }],
+      unknown: [1],
+    };
+    const raw = { ...search, id: "search-id", server_time: "now" };
     t.mock.method(globalThis, "fetch", async (url, init) => {
       assert.equal(String(url), "https://api.perplexity.ai/search");
       assert.equal(init.method, "POST");
@@ -39,7 +43,7 @@ test("Perplexity uses raw standard Search API, never fast, effort, model, tools 
     t.mock.method(ctx.modelRegistry, "getApiKeyAndHeaders", () => assert.fail("no model credentials should be used"));
     const result = await runWebSearch({ query: "query" }, ctx);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search: raw });
+    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search });
     assert.deepEqual(result.details.routes, [{ phase: "search", provider: "perplexity", endpoint: "/search" }]);
     assert.equal(perplexityAdapter.fetch, undefined);
     assert.equal(perplexityAdapter.supportsUrls, false);
@@ -59,10 +63,20 @@ test("Perplexity alone exposes only query, independent of the conversation model
   });
 });
 
-test("keyed Keenable uses pro search and GET live fetch, preserving complete raw data", async (t) => {
+test("keyed Keenable omits search/fetch billing while preserving source content and truncation metadata", async (t) => {
   await withKeys({ KEENABLE_API_KEY: fakeKeenable }, async () => {
-    const rawSearch = { query: "query", mode: "pro", results: [], usage: { credits: 1 }, unknown: true };
-    const rawPage = { url: page, content: "raw markdown", title: "page", author: "author", truncated: false, unknown: ["raw"] };
+    const search = {
+      query: "query", mode: "pro",
+      results: [{ title: "Page", url: page, snippet: "Usage documentation", published_at: "2026-01-01", acquired_at: "2026-01-02", extra: { usage: "page content" } }],
+      unknown: true,
+    };
+    const document = {
+      url: page, content: 'Raw markdown describing "usage": { "credits": 1 }', title: "page", author: "author",
+      published_at: "2026-01-01", truncated: true, total_chars: 60000, unknown: ["raw"], extra: { usage: "page content" },
+    };
+    const usage = { sku: "search.pro", amount: 1, credits: 1, paid: false, credits_remaining: 99989 };
+    const rawSearch = { ...search, usage };
+    const rawPage = { ...document, usage: { ...usage, sku: "fetch.live" } };
     const methods = [];
     t.mock.method(globalThis, "fetch", async (url, init) => {
       const target = new URL(url);
@@ -83,7 +97,7 @@ test("keyed Keenable uses pro search and GET live fetch, preserving complete raw
     const result = await runWebSearch({ query: "query", urls: [page] }, apiContext());
     assert.equal(result.isError, undefined);
     assert.deepEqual(methods, ["POST", "GET"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search: rawSearch, fetched: [{ url: page, data: rawPage }] });
+    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search, fetched: [{ url: page, data: document }] });
   });
 });
 
@@ -102,6 +116,9 @@ test("Keenable public access is opt-in and uses documented public paths and appl
     const result = await runWebSearch({ query: "query", urls: [page] }, apiContext());
     assert.equal(result.isError, undefined);
     assert.deepEqual(paths, ["/v1/search/public", "/v1/fetch/public"]);
+    assert.deepEqual(JSON.parse(result.content[0].text), {
+      query: "query", search: { results: [] }, fetched: [{ url: page, data: { url: page, content: "public page" } }],
+    });
     const pi = createMockPi();
     assert.deepEqual(createWebSearchToolManager(pi).sync(apiContext()), { expose: true, allowUrls: true });
   });

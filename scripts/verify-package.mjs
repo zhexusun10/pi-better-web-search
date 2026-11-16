@@ -67,6 +67,7 @@ const required = [
   "lib/secret-input.ts",
   "lib/dedicated-config.ts",
   "lib/providers/dedicated-http.ts",
+  "lib/providers/response-metadata.ts",
   "lib/providers/perplexity.ts",
   "lib/providers/keenable.ts",
   "lib/providers/exa.ts",

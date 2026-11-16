@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2 — Cleaner search results
+
+### Fixes
+
+- Omit Keenable search/fetch billing `usage`, Perplexity request `id` and
+  `server_time`, and Exa search `requestId`, `costDollars`, `searchTime`,
+  `warnings` and deprecated `resolvedSearchType` from model-facing results.
+  Preserve source content, dates, scores, citations, truncation indicators,
+  Exa `notices`, unknown fields and nested fields with the same names.
+
 ## 1.0.1 — Your pi login, your search tools
 
 ### Fixes

@@ -17,7 +17,7 @@ npm run verify:package
   tarball contains runtime sources, docs, assets, and metadata, while excluding
   tests, scripts, CI files, the local reference checkout, and `DESIGN.md`.
 - `npm run build` runs the checks, tests, package verification, and packs
-  `dist/pi-better-web-search-1.0.1.tgz`.
+  `dist/pi-better-web-search-1.0.2.tgz`.
 
 Tests import the TypeScript sources directly. The suite mocks `globalThis.fetch`
 and uses temporary cache directories. Coverage includes:
@@ -33,8 +33,9 @@ and uses temporary cache directories. Coverage includes:
 - dedicated API protocols, standard Perplexity search (no fast/effort/Agent API),
   Keenable keyed/public pro search and live GET fetch, Exa 10-result highlights
   search and full-text `/contents` fetch, per-URL statuses, reordered/redirected
-  results, duplicate URLs, raw metadata, standalone
-  exposure, explicit/configured/native ordering and fallback;
+  results, duplicate URLs, source metadata, omission of response-level billing,
+  request tracking and timing fields, retained Exa notices and nested same-name
+  fields, standalone exposure, explicit/configured/native ordering and fallback;
 - API configuration menus, public-access consent, secret-free persistence,
   credential redaction and Retry-After seconds/HTTP-date behavior;
 - atomic settings/cache replacement with injected partial-write and rename
