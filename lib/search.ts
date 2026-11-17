@@ -655,7 +655,6 @@ export async function runWebSearch(
 
   const visibleSearchError = searchFailure ? limitErrorMessage(searchFailure) : undefined;
   const output: WebSearchOutput = {};
-  if (query) output.query = query;
   if (searchSuccess) {
     output.search = { ...searchSuccess.result };
   } else if (visibleSearchError) {

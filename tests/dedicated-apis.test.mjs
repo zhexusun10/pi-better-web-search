@@ -44,7 +44,7 @@ test("Perplexity standard Search API preserves server_time and source dates whil
     t.mock.method(ctx.modelRegistry, "getApiKeyAndHeaders", () => assert.fail("no model credentials should be used"));
     const result = await runWebSearch({ query: "query" }, ctx);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search });
+    assert.deepEqual(JSON.parse(result.content[0].text), { search });
     assert.deepEqual(result.details.routes, [{ phase: "search", provider: "perplexity", endpoint: "/search" }]);
     assert.equal(perplexityAdapter.fetch, undefined);
     assert.equal(perplexityAdapter.supportsUrls, false);
@@ -64,11 +64,11 @@ test("Perplexity alone exposes only query, independent of the conversation model
   });
 });
 
-test("keyed Keenable omits search/fetch billing while preserving source content and truncation metadata", async (t) => {
+test("keyed Keenable omits search mode and search/fetch billing while preserving source content and truncation metadata", async (t) => {
   await withKeys({ KEENABLE_API_KEY: fakeKeenable }, async () => {
     const search = {
-      query: "query", mode: "pro",
-      results: [{ title: "Page", url: page, snippet: "Usage documentation", published_at: "2026-01-01", acquired_at: "2026-01-02", extra: { usage: "page content" } }],
+      query: "query",
+      results: [{ title: "Page", url: page, snippet: "Usage documentation", published_at: "2026-01-01", acquired_at: "2026-01-02", extra: { usage: "page content", mode: "page content" } }],
       unknown: true,
     };
     const document = {
@@ -76,7 +76,7 @@ test("keyed Keenable omits search/fetch billing while preserving source content 
       published_at: "2026-01-01", truncated: true, total_chars: 60000, unknown: ["raw"], extra: { usage: "page content" },
     };
     const usage = { sku: "search.pro", amount: 1, credits: 1, paid: false, credits_remaining: 99989 };
-    const rawSearch = { ...search, usage };
+    const rawSearch = { ...search, mode: "pro", usage };
     const rawPage = { ...document, usage: { ...usage, sku: "fetch.live" } };
     const methods = [];
     t.mock.method(globalThis, "fetch", async (url, init) => {
@@ -98,7 +98,7 @@ test("keyed Keenable omits search/fetch billing while preserving source content 
     const result = await runWebSearch({ query: "query", urls: [page] }, apiContext());
     assert.equal(result.isError, undefined);
     assert.deepEqual(methods, ["POST", "GET"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search, fetched: [{ url: page, data: document }] });
+    assert.deepEqual(JSON.parse(result.content[0].text), { search, fetched: [{ url: page, data: document }] });
   });
 });
 
@@ -118,7 +118,7 @@ test("Keenable public access is opt-in and uses documented public paths and appl
     assert.equal(result.isError, undefined);
     assert.deepEqual(paths, ["/v1/search/public", "/v1/fetch/public"]);
     assert.deepEqual(JSON.parse(result.content[0].text), {
-      query: "query", search: { results: [] }, fetched: [{ url: page, data: { url: page, content: "public page" } }],
+      search: { results: [] }, fetched: [{ url: page, data: { url: page, content: "public page" } }],
     });
     const pi = createMockPi();
     assert.deepEqual(createWebSearchToolManager(pi).sync(apiContext()), { expose: true, allowUrls: true });

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 — Omit wrapper query and Keenable search mode
+
+### Fixes
+
+- Remove the wrapper-injected top-level `query` field from `web_search` output
+  and omit Keenable search `mode` alongside billing `usage`, keeping provider
+  content and nested fields intact.
+
 ## 1.0.3 — Preserve provider timestamps
 
 ### Fixes

@@ -56,7 +56,7 @@ test("Exa combined calls keep search highlights separate from full-text fetch", 
     const result = await runWebSearch({ query: "query", urls: [page] }, ctx());
     assert.equal(result.isError, undefined);
     assert.deepEqual(calls, ["/search", "/contents"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), { query: "query", search, fetched: [{ url: page, data: document }] });
+    assert.deepEqual(JSON.parse(result.content[0].text), { search, fetched: [{ url: page, data: document }] });
     assert.deepEqual(result.details.routes, [
       { phase: "search", provider: "exa", endpoint: "/search" },
       { phase: "fetch", provider: "exa", endpoint: "/contents" },

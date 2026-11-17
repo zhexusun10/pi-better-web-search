@@ -1,6 +1,6 @@
 {
   "name": "pi-better-web-search",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Give pi agents the web: native Keenable, Exa, Perplexity and DeepSeek search APIs, URL fetch, raw results, and automatic provider fallback.",
   "type": "module",
   "license": "MIT",

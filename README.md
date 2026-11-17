@@ -63,7 +63,7 @@ Built to be the web-search tool you reach for first:
 
 ## Install and search
 
-**Version 1.0.3 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.3).
+**Version 1.0.4 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.4).
 
 ```bash
 pi install npm:pi-better-web-search
@@ -471,7 +471,6 @@ evidence retain their provider values. A search looks like this:
 
 ```json
 {
-  "query": "the query",
   "search": {
     "answer": "provider text when available",
     "results": "the provider's raw results",
@@ -494,7 +493,7 @@ evidence retain their provider values. A search looks like this:
 - Citation markers are not inserted, and no "Sources" or "Additional results"
   sections are appended.
 - Redirects are not resolved and sources are not derived.
-- Known standalone API bookkeeping is omitted: Keenable `usage`, Perplexity
+- Known standalone API bookkeeping is omitted: Keenable `mode` and `usage`, Perplexity
   `id`, and Exa `requestId` / `costDollars` / `searchTime` / `warnings` /
   `resolvedSearchType`. Provider `server_time` values and Exa `notices` remain
   available to the model.
@@ -655,7 +654,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-1.0.3.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-1.0.4.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

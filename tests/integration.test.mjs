@@ -163,7 +163,6 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
     const first = await runWebSearch({ query: "first query" }, ctx);
     assert.equal(first.isError, undefined);
     assert.deepEqual(JSON.parse(first.content[0].text), {
-      query: "first query",
       search: {
         results: rawResults,
       },
@@ -306,7 +305,9 @@ test("concurrent DeepSeek queries reject only the ones over 128 Unicode characte
       assert.deepEqual(result.details.attempts, []);
     }
     assert.equal(results[2].isError, undefined);
-    assert.equal(JSON.parse(results[2].content[0].text).query, queries[2]);
+    assert.deepEqual(JSON.parse(results[2].content[0].text), {
+      search: { results: [{ title: "result" }] },
+    });
     assert.deepEqual(sentQueries, [queries[2]]);
     assert.equal(isProviderCoolingDown("search", "deepseek"), false);
     assert.equal(isModelCoolingDown("search", "deepseek", deepseek.id), false);
@@ -358,7 +359,7 @@ test("other providers can still accept queries longer than DeepSeek's limit", as
     });
     const result = await runWebSearch({ query }, ctx);
     assert.equal(result.isError, undefined);
-    assert.equal(JSON.parse(result.content[0].text).query, query);
+    assert.deepEqual(JSON.parse(result.content[0].text).search.searchQueries, [query]);
     assert.equal(calls.length, 1);
   });
 });
@@ -796,12 +797,11 @@ test("oversized output is truncated at the configured character limit", async (t
     assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
     const text = result.content[0].text;
     const suffix = "\n[truncated]";
-    assert.ok(text.startsWith('{"query":"huge output",'));
+    assert.ok(text.startsWith('{"search":'));
     assert.ok(text.endsWith(suffix));
     assert.equal(text.match(/\[truncated\]/g)?.length, 1);
     const output = JSON.parse(text.slice(0, -suffix.length));
-    assert.deepEqual(Object.keys(output), ["query", "search"]);
-    assert.equal(output.query, "huge output");
+    assert.deepEqual(Object.keys(output), ["search"]);
     assert.equal(output.search.results[0].title, "Huge");
     assert.equal(output.search.results[0].url, longUrl);
     assert.ok(output.search.results[0].content.length < hugeContent.length);

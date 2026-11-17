@@ -25,7 +25,7 @@ Successful responses omit known API bookkeeping before reaching the model:
 
 | Provider | Omitted fields |
 |---|---|
-| Keenable search and fetch | `usage` (billing, credits and remaining balance) |
+| Keenable search and fetch | `mode` (search request mode) and `usage` (billing, credits and remaining balance) |
 | Perplexity search | `id` (request tracking) |
 | Exa search | `requestId`, `costDollars`, `searchTime`, `warnings`, `resolvedSearchType` |
 
@@ -85,7 +85,7 @@ unauthenticated Perplexity request.
 Search sends `{ "query": "...", "mode": "pro", "max_results": 10 }`, not the
 fast `realtime` mode. Fetch uses GET with URL-encoded `url` and `live=true`,
 without an LLM extraction `prompt`. Response content and source metadata are
-preserved; the outer billing `usage` object is omitted from both operations.
+preserved; the outer search `mode` and billing `usage` fields are omitted.
 Keyed requests use `X-API-Key: <KEENABLE_API_KEY>`.
 
 Without a key, explicit public access uses `/v1/search/public` and

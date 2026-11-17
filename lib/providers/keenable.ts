@@ -28,7 +28,7 @@ export const keenableAdapter: ProviderAdapter = {
       body: JSON.stringify({ query, mode: "pro", max_results: 10 }),
     }, signal);
     if (!Array.isArray(data.results)) throw new Error("Keenable returned no results array");
-    return omitResponseMetadata(data, ["usage"]);
+    return omitResponseMetadata(data, ["mode", "usage"]);
   },
   async fetch(_ctx, _model, urls, _query, signal) {
     const entries: ProviderFetchEntry[] = [];

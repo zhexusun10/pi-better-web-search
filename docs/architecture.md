@@ -262,7 +262,6 @@ The result is a JSON wrapper:
 
 ```ts
 {
-  query?: string;
   search?: {
     error?: string; // Search failed, but another requested operation succeeded.
     answer?: string;

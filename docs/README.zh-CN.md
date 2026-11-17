@@ -53,7 +53,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 
 ## 安装，登录，开搜
 
-**1.0.3 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.3)。
+**1.0.4 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.4)。
 
 ```bash
 pi install npm:pi-better-web-search
@@ -401,7 +401,6 @@ Provider 内容放在 JSON 外层中返回。独立 API 响应中已知的计费
 
 ```json
 {
-  "query": "the query",
   "search": {
     "answer": "provider text when available",
     "results": "the provider's raw results",
@@ -423,7 +422,7 @@ Provider 内容放在 JSON 外层中返回。独立 API 响应中已知的计费
 - 结果不重排、不总结。
 - 不插入 citation 标记，不追加 "Sources" 或 "Additional results"。
 - 不解析 redirect，不派生 sources。
-- 裁掉独立 API 的已知无关字段：Keenable 的 `usage`，Perplexity 的
+- 裁掉独立 API 的已知无关字段：Keenable 的 `mode` 和 `usage`，Perplexity 的
   `id`，以及 Exa 的 `requestId` / `costDollars` / `searchTime` /
   `warnings` / `resolvedSearchType`。provider 的 `server_time` 时间戳原样保留；
   Exa 的 `notices` 解释结果生成方式，也继续保留。
@@ -551,7 +550,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-1.0.3.tgz`。不会自动发布。
+`dist/pi-better-web-search-1.0.4.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。

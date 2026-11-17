@@ -8,7 +8,6 @@ export const MAX_OUTPUT_CHARS =
     : 96_000;
 
 export interface WebSearchOutput {
-  query?: string;
   search?: {
     /** Search failed while another requested operation succeeded. */
     error?: string;

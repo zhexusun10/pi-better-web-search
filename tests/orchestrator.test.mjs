@@ -724,11 +724,11 @@ test("oversized search and fetch results share the budget with one trailing mark
         assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
         const text = result.content[0].text;
         const suffix = "\n[truncated]";
-        assert.ok(text.startsWith('{"query":"truncate",'));
+        assert.ok(text.startsWith('{"search":'));
         assert.ok(text.endsWith(suffix));
         assert.equal(text.match(/\[truncated\]/g)?.length, 1);
         const output = JSON.parse(text.slice(0, -suffix.length));
-        assert.deepEqual(Object.keys(output), ["query", "search", "fetched"]);
+        assert.deepEqual(Object.keys(output), ["search", "fetched"]);
         assert.equal(output.search.results.length, 10);
         assert.deepEqual(output.fetched.map((entry) => entry.url), urls);
         for (const [index, entry] of output.search.results.entries()) {
