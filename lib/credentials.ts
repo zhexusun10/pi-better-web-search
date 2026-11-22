@@ -5,10 +5,10 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-export const LOGIN_PROVIDERS = ["deepseek", "exa", "keenable", "perplexity"] as const;
+export const LOGIN_PROVIDERS = ["deepseek", "exa", "keenable", "parallel", "perplexity"] as const;
 export type LoginProvider = typeof LOGIN_PROVIDERS[number];
 export const LOGIN_LABELS: Record<LoginProvider, string> = {
-  deepseek: "DeepSeek", exa: "Exa", keenable: "Keenable", perplexity: "Perplexity",
+  deepseek: "DeepSeek", exa: "Exa", keenable: "Keenable", parallel: "Parallel", perplexity: "Perplexity",
 };
 type KeyStore = { version: 1; keys: Partial<Record<LoginProvider, string>> };
 

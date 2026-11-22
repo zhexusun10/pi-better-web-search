@@ -6,8 +6,17 @@ import { describeRoute } from "./routes.ts";
 /** A URL-only web_search call is a fetch, not a search. */
 export function renderWebSearchCall(args: unknown, theme: Theme): Text {
   const input = args && typeof args === "object" ? args as Record<string, unknown> : {};
-  const query = typeof input.query === "string" ? input.query.trim() : "";
   const urlCount = Array.isArray(input.urls) ? input.urls.length : 0;
+  const searchQueries = Array.isArray(input.search_queries)
+    ? input.search_queries.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map(item => item.trim())
+    : [];
+  const objective = typeof input.objective === "string" ? input.objective.trim() : "";
+  const parallelSearch = searchQueries.length > 0 || (objective.length > 0 && urlCount === 0);
+  const query = typeof input.query === "string"
+    ? input.query.trim()
+    : parallelSearch
+      ? (objective || searchQueries.join(", "))
+      : "";
   const title = query ? (urlCount > 0 ? "Web Search + Fetch" : "Web Search") : urlCount > 0 ? "Web Fetch" : "Web Search / Fetch";
   const urls = urlCount > 0 ? `${urlCount} URL${urlCount === 1 ? "" : "s"}` : "";
   const summary = [query, urls].filter(Boolean).join(" + ");

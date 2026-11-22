@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getSelectableProviders, resolveResolutionContext } from "./candidates.ts";
+import { isParallelActive } from "./dedicated-config.ts";
 import { getPreferencesPath, readProviderPreferences, writeProviderPreferences } from "./preferences.ts";
 import { describeRoute, routeFor } from "./routes.ts";
 
@@ -16,6 +17,13 @@ export function registerProviderCommand(pi: Pick<ExtensionAPI, "registerCommand"
       }
       if (!ctx.hasUI) {
         ctx.ui.notify("Provider selection requires an interactive UI.", "warning");
+        return;
+      }
+      if (isParallelActive(readProviderPreferences().apis)) {
+        ctx.ui.notify(
+          "Provider priority is locked to Parallel while Parallel Search is active (official schema, no fallback). Disable Parallel with /web-search-api parallel to adjust provider priority.",
+          "info",
+        );
         return;
       }
 

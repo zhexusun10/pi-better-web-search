@@ -34,20 +34,20 @@ output guard. It does not own provider result cleanup.
 extension factory
   ├─ register web_search with defaultActive: false
   ├─ register /pi-better-web-search login|logout|status
-  ├─ register /web-search-api [deepseek|exa|keenable|perplexity]
+  ├─ register /web-search-api [parallel|deepseek|exa|keenable|perplexity]
   └─ register /web-search-provider [search|fetch]
 
 session_start / session_tree / model_select / before_agent_start
   └─ sync(ctx)
        ├─ resolve current candidate + authenticated available candidates
        ├─ read explicit provider preferences + success cache + available-model fingerprint
-       ├─ decide expose and allowUrls
+       ├─ decide expose, allowUrls, and whether Parallel locks the schema/routing
        ├─ re-register the same tool name if the schema variant changed
        └─ add/remove web_search from the active tool set
 
 tool execute
-  ├─ parse query/urls and validate input
-  ├─ run search candidates until one succeeds
+  ├─ parse normal query/urls or Parallel objective/search_queries/urls
+  ├─ run the selected candidate (Parallel is exclusive while active)
   ├─ run fetch candidates per URL until each URL succeeds or candidates end
   ├─ write search/fetch preferences + fingerprint on success
   └─ format raw JSON; compact or structurally truncate if the guard is exceeded
@@ -55,9 +55,9 @@ tool execute
 
 ## Terminal credentials
 
-`/pi-better-web-search login` selects DeepSeek, Exa, Keenable or Perplexity and
-opens a local-only masked `SecretInput`. It never delegates to the plaintext
-input renderer or accepts a key argument. Login saves a literal key in the
+`/pi-better-web-search login` selects Parallel, DeepSeek, Exa, Keenable or
+Perplexity and opens a local-only masked `SecretInput`. It never delegates to the
+plaintext input renderer or accepts a key argument. Login saves a literal key in the
 separate `better-web-search-auth.json` credential file (mode 0600 where
 supported, atomic locked writes, **not encryption**), enables the standalone
 API and resyncs exposure immediately. The saved key precedes its environment
@@ -106,6 +106,11 @@ silently re-add it.
 An explicit per-phase provider preference is inserted first when authenticated,
 supported, and lightweight for inference-backed routes. This is not a filter: all automatic fallback remains
 available, and the explicit preference is tried first even after failures.
+
+An active Parallel API is special: its official `objective` /
+`search_queries` / `urls` schema is incompatible with normal `query` / `urls`,
+so it becomes the only candidate for both phases. No provider fallback or
+provider-priority picker is available until Parallel is disabled.
 
 Configured Keenable, Exa, Perplexity, then standalone DeepSeek come next, ahead
 of current/cache hints; fetch skips Perplexity. Exa search sends

@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { hasEnvAuth } from "./auth.ts";
-import { configuredDedicatedProviders, dedicatedFingerprintEntries, DEDICATED_INFO, DEDICATED_PROVIDERS, type DedicatedProvider } from "./dedicated-config.ts";
+import { configuredDedicatedProviders, dedicatedFingerprintEntries, DEDICATED_INFO, DEDICATED_PROVIDERS, isParallelActive, type DedicatedProvider } from "./dedicated-config.ts";
 import { readProviderPreferences, type ProviderPreferences } from "./preferences.ts";
 import {
   fingerprintAvailableModels,
@@ -335,6 +335,11 @@ function usableFamilyCandidates(
   );
 }
 
+export function isParallelLocked(resolution: Pick<ResolutionContext, "preferences" | "available">): boolean {
+  return isParallelActive(resolution.preferences.apis)
+    || resolution.available.some(candidate => candidate.family === "parallel" && candidate.adapter.standalone);
+}
+
 function buildCandidates(
   resolution: ResolutionContext,
   isUsable: (candidate: Candidate) => boolean,
@@ -344,6 +349,17 @@ function buildCandidates(
 ): Candidate[] {
   const selected: Candidate[] = [];
   const seen = new Set<string>();
+  if (cap < 1) return selected;
+
+  // Parallel uses a distinct two-field search schema (objective + search_queries),
+  // so when active it locks routing to Parallel and disables cross-provider fallback.
+  if (isParallelLocked(resolution)) {
+    const parallel = resolution.available.find(candidate =>
+      candidate.family === "parallel" && candidate.adapter.standalone && isUsable(candidate),
+    ) ?? (isParallelActive(resolution.preferences.apis) ? dedicatedCandidate("parallel") : undefined);
+    if (parallel && isUsable(parallel)) selected.push(parallel);
+    return selected;
+  }
 
   // Explicit choices outrank automatic hints, but never restrict fallback or
   // reintroduce an unavailable, unauthenticated, or unsupported candidate.

@@ -130,6 +130,7 @@ test("adapter registry exposes native and dedicated families with final capabili
     perplexity: { label: "Perplexity Search", search: true, urls: false, fetch: false },
     keenable: { label: "Keenable", search: true, urls: true, fetch: true },
     exa: { label: "Exa Search", search: true, urls: true, fetch: true },
+    parallel: { label: "Parallel Search", search: true, urls: true, fetch: true },
   };
 
   for (const [family, config] of Object.entries(expected)) {

@@ -31,9 +31,10 @@ import {
   recordProviderFailure,
 } from "./health.ts";
 import { QueryLengthError } from "./providers/types.ts";
-import { MAX_URL_LENGTH, MAX_URLS } from "./schema.ts";
+import { MAX_PARALLEL_SEARCH_QUERIES, MAX_URL_LENGTH, MAX_URLS } from "./schema.ts";
 import { describeRoute, routeFor } from "./routes.ts";
-import { redactDedicatedSecrets } from "./dedicated-config.ts";
+import { isParallelActive, redactDedicatedSecrets } from "./dedicated-config.ts";
+import { readProviderPreferences } from "./preferences.ts";
 import { allowExplicitAttempt } from "./providers/dedicated-http.ts";
 import { createAttemptSignal, markAttemptOutput } from "./attempt-timeout.ts";
 
@@ -44,10 +45,16 @@ export interface UrlValidationError {
   error: string;
 }
 
+export interface ParseWebSearchInputOptions {
+  parallel?: boolean;
+}
+
 export type ParsedWebSearchInput =
   | {
       ok: true;
       query?: string;
+      objective?: string;
+      searchQueries?: string[];
       urls: string[];
       urlErrors: UrlValidationError[];
     }
@@ -102,22 +109,9 @@ export function validateUrl(value: string): string | undefined {
   return undefined;
 }
 
-export function parseWebSearchInput(params: unknown): ParsedWebSearchInput {
-  if (!params || typeof params !== "object" || Array.isArray(params)) {
-    return { ok: false, error: "Invalid arguments: expected an object." };
-  }
-
-  const input = params as Record<string, unknown>;
-  const unknownKey = Object.keys(input).find((key) => key !== "query" && key !== "urls");
-  if (unknownKey !== undefined) {
-    return { ok: false, error: `Unknown argument ${JSON.stringify(unknownKey)}. Only "query" and "urls" are supported.` };
-  }
-  if (input.query !== undefined && typeof input.query !== "string") {
-    return { ok: false, error: '"query" must be a string.' };
-  }
-  const trimmedQuery = typeof input.query === "string" ? input.query.trim() : "";
-  const query = trimmedQuery.length > 0 ? trimmedQuery : undefined;
-
+function parseUrlsField(input: Record<string, unknown>):
+  | { ok: true; urls: string[]; urlErrors: UrlValidationError[] }
+  | { ok: false; error: string } {
   if (input.urls !== undefined && !Array.isArray(input.urls)) {
     return { ok: false, error: '"urls" must be an array of strings.' };
   }
@@ -140,6 +134,105 @@ export function parseWebSearchInput(params: unknown): ParsedWebSearchInput {
     if (error) urlErrors.push({ url: value, error });
     else urls.push(value);
   }
+  return { ok: true, urls, urlErrors };
+}
+
+export function parseWebSearchInput(
+  params: unknown,
+  { parallel = false }: ParseWebSearchInputOptions = {},
+): ParsedWebSearchInput {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return { ok: false, error: "Invalid arguments: expected an object." };
+  }
+
+  const input = params as Record<string, unknown>;
+  if (parallel) {
+    const unknownKey = Object.keys(input).find(
+      (key) => key !== "objective" && key !== "search_queries" && key !== "urls",
+    );
+    if (unknownKey !== undefined) {
+      return {
+        ok: false,
+        error: `Unknown argument ${JSON.stringify(unknownKey)}. Only "objective", "search_queries", and "urls" are supported.`,
+      };
+    }
+    if (input.objective !== undefined && typeof input.objective !== "string") {
+      return { ok: false, error: '"objective" must be a string.' };
+    }
+    const trimmedObjective = typeof input.objective === "string" ? input.objective.trim() : "";
+    if (input.objective !== undefined && trimmedObjective.length === 0) {
+      return { ok: false, error: '"objective" must not be empty when provided.' };
+    }
+    const objective = trimmedObjective.length > 0 ? trimmedObjective : undefined;
+
+    let searchQueries: string[] | undefined;
+    if (input.search_queries !== undefined) {
+      if (!Array.isArray(input.search_queries)) {
+        return { ok: false, error: '"search_queries" must be an array of strings.' };
+      }
+      if (input.search_queries.length === 0) {
+        return { ok: false, error: '"search_queries" must contain at least one query when provided.' };
+      }
+      if (input.search_queries.length > MAX_PARALLEL_SEARCH_QUERIES) {
+        return {
+          ok: false,
+          error: `At most ${MAX_PARALLEL_SEARCH_QUERIES} search_queries are allowed (received ${input.search_queries.length}).`,
+        };
+      }
+      if (input.search_queries.some((value) => typeof value !== "string")) {
+        return { ok: false, error: '"search_queries" must contain only strings.' };
+      }
+      const trimmedQueries = (input.search_queries as string[]).map((value) => value.trim());
+      if (trimmedQueries.some((value) => value.length === 0)) {
+        return { ok: false, error: '"search_queries" must contain non-empty strings.' };
+      }
+      searchQueries = trimmedQueries;
+    }
+
+    const parsedUrls = parseUrlsField(input);
+    if (!parsedUrls.ok) return parsedUrls;
+    const { urls, urlErrors } = parsedUrls;
+
+    if (searchQueries && !objective) {
+      return { ok: false, error: 'Parallel search requires both "objective" and "search_queries".' };
+    }
+    if (objective && !searchQueries && urls.length === 0 && urlErrors.length === 0) {
+      return {
+        ok: false,
+        error: 'Parallel search requires both "objective" and "search_queries", or provide "urls" to fetch.',
+      };
+    }
+    if (!searchQueries && urls.length === 0) {
+      const detail = urlErrors.length > 0 ? ` ${summarizeUrlErrors(urlErrors)}` : "";
+      return {
+        ok: false,
+        error: `Parallel web_search requires both "objective" and "search_queries", or at least one valid URL.${detail}`,
+      };
+    }
+
+    return {
+      ok: true,
+      ...(searchQueries && objective ? { query: objective } : {}),
+      ...(objective ? { objective } : {}),
+      ...(searchQueries ? { searchQueries } : {}),
+      urls,
+      urlErrors,
+    };
+  }
+
+  const unknownKey = Object.keys(input).find((key) => key !== "query" && key !== "urls");
+  if (unknownKey !== undefined) {
+    return { ok: false, error: `Unknown argument ${JSON.stringify(unknownKey)}. Only "query" and "urls" are supported.` };
+  }
+  if (input.query !== undefined && typeof input.query !== "string") {
+    return { ok: false, error: '"query" must be a string.' };
+  }
+  const trimmedQuery = typeof input.query === "string" ? input.query.trim() : "";
+  const query = trimmedQuery.length > 0 ? trimmedQuery : undefined;
+
+  const parsedUrls = parseUrlsField(input);
+  if (!parsedUrls.ok) return parsedUrls;
+  const { urls, urlErrors } = parsedUrls;
 
   if (!query && urls.length === 0) {
     const detail = urlErrors.length > 0 ? ` ${summarizeUrlErrors(urlErrors)}` : "";
@@ -310,6 +403,7 @@ async function runSearch(
   externalSignal: AbortSignal | undefined,
   onUpdate: AgentToolUpdateCallback | undefined,
   attempts: WebSearchAttempt[],
+  searchQueries?: string[],
 ): Promise<SearchSuccess | undefined> {
   const candidates = getSearchCandidates(resolution, Infinity);
   if (candidates.length === 0) return undefined;
@@ -341,7 +435,9 @@ async function runSearch(
 
     try {
       const result = await withSignal(
-        candidate.adapter.search(resolution.ctx, candidate.model, query, signal, relayUpdate),
+        searchQueries
+          ? candidate.adapter.search(resolution.ctx, candidate.model, query, signal, relayUpdate, searchQueries)
+          : candidate.adapter.search(resolution.ctx, candidate.model, query, signal, relayUpdate),
         signal,
       );
       if (externalSignal?.aborted) throw abortReason(externalSignal);
@@ -584,14 +680,15 @@ export async function runWebSearch(
   signal?: AbortSignal,
   onUpdate?: AgentToolUpdateCallback,
 ): Promise<AgentToolResult<WebSearchDetails>> {
-  const parsed = parseWebSearchInput(params);
+  const parallel = isParallelActive(readProviderPreferences().apis);
+  const parsed = parseWebSearchInput(params, { parallel });
   if (!parsed.ok) {
     return formatError(parsed.error, { attempts: [], error: parsed.error });
   }
 
   if (signal?.aborted) throw abortReason(signal);
 
-  const { query, urls, urlErrors } = parsed;
+  const { query, objective, searchQueries, urls, urlErrors } = parsed;
   const searchRequested = query !== undefined;
   const validFetchRequested = urls.length > 0;
   const fetchRequested = validFetchRequested || urlErrors.length > 0;
@@ -605,7 +702,7 @@ export async function runWebSearch(
   let queryLengthFailure = false;
   if (searchRequested) {
     try {
-      searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts);
+      searchSuccess = await runSearch(resolution, query, signal, onUpdate, attempts, searchQueries);
     } catch (error) {
       if (!(error instanceof QueryLengthError)) throw error;
       searchFailure = error.message;
@@ -624,7 +721,7 @@ export async function runWebSearch(
     const fetched = await runFetch(
       resolution,
       fetchCandidates,
-      query,
+      objective ?? query,
       signal,
       onUpdate,
       attempts,

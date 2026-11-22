@@ -36,7 +36,7 @@ process.env.PI_BETTER_WEB_SEARCH_SETTINGS = join(cacheDir, "settings.json");
 process.env.PI_BETTER_WEB_SEARCH_MAX_CHARS ||= "1000000";
 
 const { writeProviderPreferences } = await import("../lib/preferences.ts");
-if (!writeProviderPreferences({ version: 1, apis: { perplexity: false, keenable: false, exa: false, deepseek: false } })) {
+if (!writeProviderPreferences({ version: 1, apis: { parallel: false, perplexity: false, keenable: false, exa: false, deepseek: false } })) {
   rmSync(cacheDir, { recursive: true, force: true });
   throw new Error("Could not isolate live-test provider settings");
 }

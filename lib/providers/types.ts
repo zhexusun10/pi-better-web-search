@@ -1,7 +1,7 @@
 import type { AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-export const PROVIDER_FAMILIES = ["deepseek", "ollama", "google", "openai", "xai", "anthropic", "perplexity", "keenable", "exa"] as const;
+export const PROVIDER_FAMILIES = ["deepseek", "ollama", "google", "openai", "xai", "anthropic", "perplexity", "keenable", "exa", "parallel"] as const;
 export type ProviderFamily = (typeof PROVIDER_FAMILIES)[number];
 
 /** A request validation error that the model can fix and retry. */
@@ -58,6 +58,7 @@ export interface ProviderAdapter {
     query: string,
     signal: AbortSignal | undefined,
     onUpdate?: AgentToolUpdateCallback,
+    searchQueries?: string[],
   ): Promise<ProviderSearchResult>;
   fetch?(
     ctx: ExtensionContext,

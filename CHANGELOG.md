@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.5 — Add Parallel Search
+
+### Added
+
+- Add standalone Parallel Web Systems Search and Extract support with
+  `POST /v1/search` and `POST /v1/extract`, authenticated by `PARALLEL_API_KEY`
+  or the masked `/pi-better-web-search login` flow.
+- Add Parallel to provider discovery, API settings, provider status, terminal
+  login, package verification, live smoke testing, and the npm package.
+
+### Compatibility behavior
+
+- When Parallel is active, `web_search` exposes Parallel's official
+  `objective` / `search_queries` / `urls` schema. Search requires an objective
+  and 1–3 search queries; extraction accepts URLs with an optional objective.
+- Parallel's schema is incompatible with the normal `query` / `urls` schema, so
+  active Parallel routing is intentionally locked to Parallel. Other provider
+  fallback and the provider-priority picker are disabled until Parallel is
+  disabled with `/web-search-api parallel`.
+- Update the Artificial Analysis Search Index artwork and documentation: Parallel
+  advanced search with an objective is now at the top of the 21 Nov 2026 snapshot
+  with a score of 83, tied with Keenable Pro.
+
+### Tests
+
+- Add request-shape, schema, routing-lock, fallback, credential-redaction,
+  Retry-After, cancellation, and terminal-command coverage for Parallel.
+
 ## 1.0.4 — Omit wrapper query and Keenable search mode
 
 ### Fixes

@@ -1,8 +1,8 @@
 # Providers
 
-Two paths, one tool: **standalone Keenable, Exa, Perplexity and DeepSeek APIs**,
-plus native model-provider search. Standalone APIs need only a saved/environment
-key; see [setup and exact requests](search-apis.md).
+Two paths, one tool: **standalone Parallel, Keenable, Exa, Perplexity and
+DeepSeek APIs**, plus native model-provider search. Standalone APIs need only a
+saved/environment key; see [setup and exact requests](search-apis.md).
 
 For native model routes, the extension selects an adapter from the authenticated
 model's provider id, API id, and base URL. We support **10 native provider classes
@@ -34,11 +34,13 @@ select another authenticated concrete model.
 
 ## Dedicated retrieval APIs
 
-[DeepSeek, Perplexity, Keenable and Exa](search-apis.md) support independent
+[Parallel, DeepSeek, Perplexity, Keenable and Exa](search-apis.md) support independent
 saved terminal-login keys with environment fallbacks, without requiring a
 conversation model. Run `/pi-better-web-search login` to select a provider and
 save a key in a masked local terminal dialog. Standalone DeepSeek uses the
-official native endpoints; existing pi model-provider authentication is unchanged. Perplexity uses only
+official native endpoints; existing pi model-provider authentication is unchanged. Parallel is
+special: its official schema is incompatible with the normal contract, so when
+active it locks routing to Parallel and disables fallback. Perplexity uses only
 `POST /search` with `search_type: "web"` (never fast), no strength/model
 parameters, and no Fetch. Keenable uses pro search and live GET Fetch, with
 optional explicitly enabled public endpoints. Exa searches with `numResults: 10`
@@ -46,10 +48,11 @@ and nested `contents.highlights: true`, and fetches URLs via `POST /contents`
 with top-level `text: true`. Exa HTTP-200 responses are checked for per-URL
 failures; only unresolved URLs proceed to fallback.
 
-Configured **Keenable → Exa → Perplexity → standalone DeepSeek** precede
-automatic model routing (fetch skips Perplexity); explicit per-phase preferences
-still win and fallback remains enabled. Health cooldowns reorder automatic
-native routes only, not the explicit or standalone priorities. Search content
+Configured **Parallel (when active and locked) → Keenable → Exa → Perplexity →
+standalone DeepSeek** precede automatic model routing; explicit per-phase preferences
+still win when Parallel is disabled and fallback remains enabled for the normal
+mode. Health cooldowns reorder automatic native routes only, not the explicit or
+standalone priorities. Search content
 and each fetched raw document are preserved, with known API bookkeeping omitted
 as described in [response metadata handling](search-apis.md#interfaces). These
 services do not participate in model-tier ranking.
@@ -66,6 +69,20 @@ An authenticated inference-model provider with no eligible model does not expose
 the tool on its own; configured standalone APIs remain available. Pi-authenticated
 DeepSeek Search/Fetch is a provider-level API exception: it needs no inference
 model and does not depend on a `flash` id or a populated available chat catalog.
+
+## Parallel
+
+Parallel Web Systems provides the standalone `/v1/search` and `/v1/extract`
+endpoints. Search uses `mode: "advanced"` with an `objective` and 1–3
+`search_queries`; Extract accepts `urls` and an optional `objective`.
+
+Because Parallel's official fields do not match this extension's normal
+`query` / `urls` schema, an active Parallel key changes the tool schema to
+`objective` / `search_queries` / `urls` and makes Parallel the only candidate.
+Provider fallback and the provider picker are disabled until
+`/web-search-api parallel` disables it. See the complete request and response
+notes in [Dedicated search APIs](search-apis.md#parallel-official-advanced-search-and-extract).
+
 
 ## DeepSeek
 

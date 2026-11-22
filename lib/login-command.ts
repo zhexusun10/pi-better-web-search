@@ -12,8 +12,8 @@ const COMMAND_HELP = [
   `/${LOGIN_COMMAND_NAME} login|logout|status — manage saved API keys`,
   "/web-search-provider search — choose the preferred search provider",
   "/web-search-provider fetch — choose the preferred URL fetch provider",
-  "/web-search-api [deepseek|exa|keenable|perplexity] — enable/disable standalone APIs",
-  "Search and fetch preferences are independent. Manual preferences are tried first; automatic fallback remains enabled.",
+  "/web-search-api [parallel|keenable|exa|perplexity|deepseek] — enable/disable standalone APIs",
+  "Search and fetch preferences are independent. Manual preferences are tried first; automatic fallback remains enabled (unless Parallel is active, which locks priority and schema to Parallel without fallback).",
   "Enter keys only in the hidden terminal dialog, never in a command argument.",
 ].join("\n");
 
@@ -90,6 +90,10 @@ export function registerLoginCommand(
       onChanged?.(ctx);
       if (!enabled) {
         ctx.ui.notify(`${label}: key saved, but the API enable setting could not be saved. Fix settings permissions and retry login.`, "warning");
+        return;
+      }
+      if (provider === "parallel") {
+        ctx.ui.notify(`${label}: API key saved locally (not encrypted) and enabled. It takes precedence over the environment key. Provider priority is locked to Parallel with its official schema and no fallback. No validation request was sent.`, "info");
         return;
       }
       ctx.ui.notify(`${label}: API key saved locally (not encrypted) and enabled. It takes precedence over the environment key. Existing provider preferences and fallback are unchanged. No validation request was sent.`, "info");

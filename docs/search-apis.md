@@ -1,21 +1,24 @@
 # Dedicated search APIs
 
-The extension still exposes exactly one model-facing tool, `web_search`, with
-`query` / `urls`. Standalone services do not need a pi chat model or a
-luna/haiku/flash model id. No SDK or MCP dependency is required: the adapters use
-Node's native fetch, existing cancellation, timeout, error and fallback helpers.
+The extension exposes exactly one model-facing tool, `web_search`. In normal
+mode it uses `query` / `urls`; when Parallel is active it switches to Parallel's
+official `objective` / `search_queries` / `urls` schema. Standalone services do
+not need a pi chat model or a luna/haiku/flash model id. No SDK or MCP dependency
+is required: the adapters use Node's native fetch, existing cancellation,
+timeout, error and fallback helpers.
 
-This release brings the **three leading independent providers in the
-[Artificial Analysis snapshot](https://artificialanalysis.ai/agents/search-api)**
-into pi: **Keenable Pro (83), Exa auto (80), and Perplexity medium (80)**, alongside
-native DeepSeek Search/Fetch. The no-search baseline is **33**; integrated OpenAI
-Web Search scores **74**. See the [original screenshot](../assets/search-index.png)
-(15 Nov 2026 snapshot) and [benchmark methodology](https://artificialanalysis.ai/methodology/search-api).
+This release adds **Parallel Search**, which is at the top of the new
+[Artificial Analysis snapshot](https://artificialanalysis.ai/agents/search-api):
+**Parallel advanced objective (83)** ties **Keenable Pro (83)**. Parallel fast
+objective scores 82; Exa auto and Perplexity medium score 80. The no-search
+baseline is **33** and integrated OpenAI Web Search scores **74**. See the
+[21 Nov 2026 screenshot](../assets/search-index.png) and [benchmark methodology](https://artificialanalysis.ai/methodology/search-api).
 
 ## Interfaces
 
 | Provider | Search | Fetch | Optional environment fallback |
 |---|---|---|---|
+| Parallel | `POST https://api.parallel.ai/v1/search` | `POST https://api.parallel.ai/v1/extract` | `PARALLEL_API_KEY` |
 | DeepSeek | `POST https://api.deepseek.com/v1/tools/search` | `POST https://api.deepseek.com/v1/tools/fetch` | `DEEPSEEK_API_KEY` |
 | Perplexity | `POST https://api.perplexity.ai/search` | **No** | `PERPLEXITY_API_KEY` |
 | Keenable | `POST https://api.keenable.ai/v1/search` | `GET https://api.keenable.ai/v1/fetch` | `KEENABLE_API_KEY` or explicit public access |
@@ -25,6 +28,7 @@ Successful responses omit known API bookkeeping before reaching the model:
 
 | Provider | Omitted fields |
 |---|---|
+| Parallel search | `search_id`, `usage`, `warnings`, `session_id`, root `metadata` |
 | Keenable search and fetch | `mode` (search request mode) and `usage` (billing, credits and remaining balance) |
 | Perplexity search | `id` (request tracking) |
 | Exa search | `requestId`, `costDollars`, `searchTime`, `warnings`, `resolvedSearchType` |
@@ -39,6 +43,42 @@ Exa fetch already returns individual documents rather than the response envelope
 Native model adapters select search results, answers and source evidence without
 forwarding response-level token usage. HTTP errors retain their diagnostic details
 for normal fallback and troubleshooting.
+
+### Parallel: official advanced Search and Extract
+
+Parallel is intentionally the special mode in this extension. Search sends the
+official advanced request:
+
+```json
+{
+  "mode": "advanced",
+  "objective": "Find official TypeScript documentation.",
+  "search_queries": ["TypeScript official documentation"]
+}
+```
+
+Extract sends:
+
+```json
+{
+  "urls": ["https://example.com/page"],
+  "objective": "Summarize the page."
+}
+```
+
+Search requires an `objective` and 1–3 `search_queries`; Extract accepts `urls`
+with an optional objective. The model-facing schema changes to
+`objective` / `search_queries` / `urls` while Parallel is active. Since that
+schema is incompatible with the normal `query` / `urls` contract, Parallel
+becomes the only search/fetch candidate: errors do not fall back to another
+provider, and the provider picker is unavailable. Disable it with
+`/web-search-api parallel` to restore the normal schema and fallback behavior.
+
+Create a key at https://platform.parallel.ai and save it through
+`/pi-better-web-search login`, or set `PARALLEL_API_KEY` before starting pi.
+Requests use `X-API-Key`; the adapter matches returned results and errors by URL,
+keeps successful pages, redacts the sent key, and omits root bookkeeping fields
+listed above. No live validation request is made during login.
 
 ### DeepSeek: native Search/Fetch
 
@@ -166,8 +206,8 @@ explicit enable still requires a key. No real key is bundled with this project.
 /pi-better-web-search login
 ```
 
-Choose one of **DeepSeek, Exa, Keenable, or Perplexity** from the four-provider menu,
-then type/paste a key into the masked input and press Enter. Esc/Ctrl+C cancels
+Choose one of **Parallel, DeepSeek, Exa, Keenable, or Perplexity** from the
+five-provider menu, then type/paste a key into the masked input and press Enter. Esc/Ctrl+C cancels
 without changing files. Saved keys take precedence over environment variables;
 login enables that API and resyncs the tool immediately, without restarting pi
 or switching the conversation model. No billable validation request is sent.
@@ -189,7 +229,7 @@ Windows relying on the user profile's ACLs. Atomic writes and a cross-process
 lock protect replacements; a corrupt file is never overwritten by login.
 Do not commit/share this file or its backups. No OS keychain dependency is used.
 
-`/web-search-api [deepseek|exa|keenable|perplexity]` remains the enable/disable
+`/web-search-api [parallel|deepseek|exa|keenable|perplexity]` remains the enable/disable
 menu. It shows readiness and **key presence/source only**, never key values:
 
 - **Automatic**: enable if a saved or environment key is present (the default).
@@ -203,19 +243,26 @@ and URL support, without switching the conversation model. If the tool was
 manually deactivated, that choice is respected.
 
 `/web-search-provider [search|fetch]` continues to select a preferred provider
-per phase, including the configured standalone APIs. Perplexity is absent from
-the fetch picker; Keenable and Exa support both phases. Auto resets only that phase's preference.
+per phase, including the configured standalone APIs. While Parallel is active,
+the picker reports that routing is locked and cannot change the priority.
+Perplexity is absent from the fetch picker; Keenable, Exa, and Parallel support
+both phases. Auto resets only that phase's preference.
 
 ## Priority and fallback
 
 Search order:
 
-1. Explicit `/web-search-provider search` preference, if usable.
-2. Configured Keenable, Exa, Perplexity, then standalone DeepSeek.
-3. Existing current-provider, success-cache, native-family and sibling routing.
+1. Active Parallel, if configured: Parallel is the only candidate and no fallback
+   is attempted because its schema is incompatible with the normal contract.
+2. Explicit `/web-search-provider search` preference, if usable.
+3. Configured Keenable, Exa, Perplexity, then standalone DeepSeek.
+4. Existing current-provider, success-cache, native-family and sibling routing.
 
-Fetch follows the same policy: Keenable, Exa, then standalone DeepSeek precede
-automatic native routing; Perplexity does not support fetch. Both provider pickers remain preferences, not locks. Search and fetch each allow one initial attempt and up to six fallback attempts. A successful empty search is valid.
+Fetch follows the same policy: active Parallel is exclusive; otherwise Keenable,
+Exa, then standalone DeepSeek precede automatic native routing; Perplexity does
+not support fetch. Both provider pickers remain preferences, not locks, except
+for the active Parallel schema mode. Search and fetch each allow one initial
+attempt and up to six fallback attempts. A successful empty search is valid.
 The existing partial-success policy applies across dedicated and native APIs.
 
 There are no hidden HTTP retries. `Retry-After` seconds and HTTP dates defer
@@ -242,7 +289,7 @@ credential change does not reuse another credential's Retry-After state.
   "version": 1,
   "search": "perplexity",
   "fetch": "keenable",
-  "apis": { "perplexity": true, "keenable": true, "exa": true, "deepseek": true, "keenableKeyRequired": true }
+  "apis": { "parallel": true, "perplexity": true, "keenable": true, "exa": true, "deepseek": true, "keenableKeyRequired": true }
 }
 ```
 

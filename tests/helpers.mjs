@@ -10,6 +10,7 @@ delete process.env.PERPLEXITY_API_KEY;
 delete process.env.KEENABLE_API_KEY;
 delete process.env.EXA_API_KEY;
 delete process.env.DEEPSEEK_API_KEY;
+delete process.env.PARALLEL_API_KEY;
 // Never read/write the user's real saved API credentials in mocked tests.
 const testAuthDirectory = mkdtempSync(join(tmpdir(), "pi-bws-test-auth-"));
 process.env.PI_BETTER_WEB_SEARCH_AUTH = join(testAuthDirectory, "credentials.json");

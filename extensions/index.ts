@@ -3,6 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   hasExposedCandidate,
   hasUrlCandidate,
+  isParallelLocked,
   resolveResolutionContext,
 } from "../lib/candidates.ts";
 import { buildWebSearchSchema, buildWebSearchToolDescription, WEB_SEARCH_TOOL_NAME } from "../lib/schema.ts";
@@ -21,12 +22,12 @@ export function createWebSearchToolManager(
   let preferredActive = true;
   let lastAppliedPresence: boolean | undefined;
 
-  const register = (allowUrls: boolean, exposed = false): void => {
+  const register = (allowUrls: boolean, exposed = false, parallel = false): void => {
     pi.registerTool({
       name: WEB_SEARCH_TOOL_NAME,
       label: "Web Search",
-      description: buildWebSearchToolDescription({ allowUrls }),
-      parameters: buildWebSearchSchema({ allowUrls }),
+      description: buildWebSearchToolDescription({ allowUrls, parallel }),
+      parameters: buildWebSearchSchema({ allowUrls, parallel }),
       exposure: "direct",
       defaultActive: false,
       annotations: { readOnlyHint: true, openWorldHint: true },
@@ -35,7 +36,7 @@ export function createWebSearchToolManager(
       renderCall: renderWebSearchCall,
       renderResult: renderWebSearchResult,
     });
-    lastSignature = `${exposed}|${allowUrls}`;
+    lastSignature = `${exposed}|${allowUrls}|${parallel}`;
   };
 
   const sync = (
@@ -45,12 +46,13 @@ export function createWebSearchToolManager(
     const resolution = resolveResolutionContext(ctx, model);
     const expose = hasExposedCandidate(resolution);
     const allowUrls = expose && hasUrlCandidate(resolution);
-    const signature = `${expose}|${allowUrls}`;
+    const parallel = expose && isParallelLocked(resolution);
+    const signature = `${expose}|${allowUrls}|${parallel}`;
 
     if (signature !== lastSignature) {
       // pi replaces a same-name definition, so this updates the schema
       // without ever registering a second tool.
-      register(allowUrls, expose);
+      register(allowUrls, expose, parallel);
     }
 
     const current = pi.getActiveTools();

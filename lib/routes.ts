@@ -5,6 +5,7 @@ import { dedicatedKey } from "./dedicated-config.ts";
 /** Describe the API actually invoked, not the model used to find credentials. */
 export function routeFor(candidate: Candidate, phase: WebSearchRoute["phase"]): WebSearchRoute {
   const provider = candidate.model.provider;
+  if (candidate.family === "parallel") return { phase, provider, endpoint: phase === "fetch" ? "/v1/extract" : "/v1/search" };
   if (candidate.family === "perplexity") return { phase, provider, endpoint: "/search" };
   if (candidate.family === "exa") return { phase, provider, endpoint: phase === "fetch" ? "/contents" : "/search" };
   if (candidate.family === "keenable") {

@@ -40,7 +40,8 @@ export function registerApiCommand(
       const enable = provider === "keenable" ? "Enable — use key, or public/keyless access" : "Enable — requires a saved or environment key";
       const disable = "Disable — exclude this API, even when a key is present";
       const setup = "Show setup instructions (never paste a key into chat)";
-      const capability = provider === "deepseek" ? "Native Search + Fetch; no chat model"
+      const capability = provider === "parallel" ? "Search: advanced + objective + search_queries; Extract: urls + objective; locks priority, no fallback"
+        : provider === "deepseek" ? "Native Search + Fetch; no chat model"
         : provider === "perplexity" ? "Search only; standard web, fast off; no effort/model"
         : provider === "exa" ? "Search: 10 results + highlights; URL Fetch: /contents full text"
         : "Search pro + live URL Fetch";
@@ -50,7 +51,7 @@ export function registerApiCommand(
       );
       if (selected === undefined) return;
       if (selected === setup) {
-        ctx.ui.notify(`Run /pi-better-web-search login to save a key in the hidden terminal dialog. Create a key at ${info.setup}; alternatively set ${info.env} in your terminal and restart pi. Never paste keys into chat. ${provider === "keenable" ? "Explicit keyless access is also available." : provider === "deepseek" ? "This uses /v1/tools/search and /v1/tools/fetch without a chat model." : provider === "exa" ? "This uses POST /search and POST /contents, not Answer or Agent APIs." : "This uses POST /search, not Agent or Orchestrator APIs."}`, "info");
+        ctx.ui.notify(`Run /pi-better-web-search login to save a key in the hidden terminal dialog. Create a key at ${info.setup}; alternatively set ${info.env} in your terminal and restart pi. Never paste keys into chat. ${provider === "keenable" ? "Explicit keyless access is also available." : provider === "parallel" ? "This uses POST /v1/search (mode: advanced) and POST /v1/extract with Parallel's official schema, locks provider priority to Parallel, and disables fallback." : provider === "deepseek" ? "This uses /v1/tools/search and /v1/tools/fetch without a chat model." : provider === "exa" ? "This uses POST /search and POST /contents, not Answer or Agent APIs." : "This uses POST /search, not Agent or Orchestrator APIs."}`, "info");
         return;
       }
       if (![auto, enable, disable].includes(selected)) return;
@@ -75,6 +76,13 @@ export function registerApiCommand(
       }
       onChanged?.(ctx);
       const updated = dedicatedState(provider, apis);
+      if (provider === "parallel" && updated.available) {
+        ctx.ui.notify(
+          `${info.name}: ready. Provider priority is locked to Parallel with its official schema; fallback to other providers is disabled.`,
+          "info",
+        );
+        return;
+      }
       ctx.ui.notify(
         `${info.name}: ${updated.available ? "ready" : updated.enabled ? `enabled, but ${info.env} is missing and no saved key exists; run /pi-better-web-search login or create a key at ${info.setup}` : "disabled"}. Manual /web-search-provider choices win; automatic fallback remains enabled.`,
         updated.enabled && !updated.available ? "warning" : "info",

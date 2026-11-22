@@ -3,7 +3,7 @@
 **One tool. Every provider. Raw results.**
 
 A [pi](https://pi.dev) extension that adds exactly one model-callable tool:
-`web_search`. Search with **Keenable, Exa, Perplexity, or DeepSeek**, fetch URLs
+`web_search`. Search with **Parallel, Keenable, Exa, Perplexity, or DeepSeek**, fetch URLs
 when supported, and automatically fall back across authenticated native
 providers. Keep your conversation model; get provider results as-is.
 
@@ -26,17 +26,19 @@ independently; raw provider data goes straight back to the agent.
 
 ## Search is an agent superpower
 
-**33 without search. 83 with Keenable Pro. A 50-point leap.**
+**33 without search. Parallel Search (advanced, objective) and Keenable Pro: 83.**
+That puts Parallel at the top of this Artificial Analysis Search Index snapshot;
+the model-only baseline is 33, while Parallel's fast objective mode scores 82,
+Exa reaches 80, and Perplexity reaches 80.
 
-The Artificial Analysis Search Index makes the difference visible: the dashed
-**model-only baseline is 33**, while **Keenable Pro reaches 83**, with Exa and
-Perplexity at **80**. All three independent providers score ahead of the
-integrated **OpenAI Web Search result at 74** in this snapshot.
+The Artificial Analysis Search Index makes the difference visible: independent
+search tools put high-quality web evidence in front of the agent instead of
+asking the model to rely on memory alone.
 
-![Artificial Analysis Search Index: model-only 33, Keenable Pro 83, Exa auto 80, Perplexity medium 80, OpenAI Web Search 74, DeepSeek summary 69](assets/search-index.png)
+![Artificial Analysis Search Index: Parallel Search advanced objective 83, Keenable Pro 83, Parallel fast objective 82, Keenable realtime 82, Exa auto 80, Perplexity medium 80, OpenAI Web Search 74, DeepSeek summary 69](assets/search-index.png)
 
 *Source: [Artificial Analysis Search Index](https://artificialanalysis.ai/agents/search-api),
-15 Nov 2026 screenshot. Scores combine DeepSearchQA F1, BrowseComp accuracy and
+21 Nov 2026 screenshot. Scores combine DeepSearchQA F1, BrowseComp accuracy and
 AA-Omniscience accuracy. [Methodology](https://artificialanalysis.ai/methodology/search-api).*
 
 For a coding agent, the web is working memory at internet scale: official docs,
@@ -50,8 +52,13 @@ trial and error into a direct path to a successful task, with fewer wasted token
 
 Built to be the web-search tool you reach for first:
 
-- **Search specialists, not just model-provider search.** Keenable Pro,
-  Exa highlights, Perplexity's standard web Search API, and native DeepSeek.
+- **Search specialists, not just model-provider search.** Parallel advanced Search,
+  Keenable Pro, Exa highlights, Perplexity's standard web Search API, and native
+  DeepSeek.
+- **Parallel's official agent schema when enabled.** Parallel uses `objective`,
+  `search_queries`, and `urls`; because this schema is incompatible with the
+  normal `query` / `urls` contract, active Parallel routing is locked to Parallel
+  and does not fall back to other providers.
 - **Your model, your search engine.** Standalone APIs work independently of the
   conversation model. Log in once in a masked terminal dialog and start searching.
 - **Search → read → build.** Search for solutions, fetch the primary sources,
@@ -63,7 +70,7 @@ Built to be the web-search tool you reach for first:
 
 ## Install and search
 
-**Version 1.0.4 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.4).
+**Version 1.0.5 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.5).
 
 ```bash
 pi install npm:pi-better-web-search
@@ -75,13 +82,23 @@ Then start a new pi process, or run `/reload` in an existing session. In pi's te
 /pi-better-web-search login
 ```
 
-Choose **Keenable, Exa, Perplexity, or DeepSeek**, paste your key into the hidden
-input, and press Enter. The API is available immediately—no chat-model setup
-or environment-variable ceremony. Already have an eligible authenticated native
-provider? It works as a fallback too.
+Choose **Parallel, Keenable, Exa, Perplexity, or DeepSeek**, paste your key into the hidden
+input, and press Enter. Parallel is ready immediately with its official
+`objective` / `search_queries` / `urls` schema. The API is available immediately—no chat-model setup
+or environment-variable ceremony. An eligible authenticated native provider can
+be used as fallback when Parallel is disabled.
 
 Try: *“Find the official migration guide and an existing library for this before
 implementing it from scratch.”*
+
+> **Parallel mode is intentionally different.** When Parallel is enabled, the
+> tool schema changes from `query` / `urls` to Parallel's official
+> `objective` / `search_queries` / `urls` fields. Search requires both
+> `objective` and 1–3 `search_queries`; URL extraction accepts `urls` with an
+> optional `objective`. Because the schemas are incompatible, routing is locked
+> to Parallel and fallback to other providers is disabled. Run
+> `/web-search-api parallel` and choose **Disable** to restore the normal schema
+> and provider fallback.
 
 Install the latest source from GitHub, or use a local checkout:
 
@@ -134,7 +151,7 @@ A focused tool with the reliability features an agent actually needs:
 
 ## Tool semantics
 
-The runtime schema is logically:
+The normal runtime schema is logically:
 
 ```ts
 {
@@ -142,6 +159,23 @@ The runtime schema is logically:
   urls?: string[];
 }
 ```
+
+When Parallel is active, the schema intentionally switches to its official
+shape:
+
+```ts
+{
+  objective?: string;
+  search_queries?: string[]; // 1–3 queries; required for search
+  urls?: string[];            // optional; may be used without a search
+}
+```
+
+Parallel search requires both `objective` and `search_queries`; URL extraction
+accepts `urls` with an optional `objective`. `query` is rejected while Parallel
+is active. Since the two contracts are incompatible, only Parallel is routed
+and no other provider fallback is attempted. Disable Parallel with
+`/web-search-api parallel` to return to the normal schema.
 
 - `query` searches the web. Outer whitespace is trimmed; search operators are
   otherwise passed through unchanged. If DeepSeek is selected and the query
@@ -224,18 +258,25 @@ fetches full page text via `/contents`; DeepSeek uses native Search/Fetch.
 
 | Standalone API | Search configuration | URL fetch |
 |---|---|---|
+| **Parallel** | Advanced (`objective` + 1–3 `search_queries`) | `urls` + optional `objective` |
 | **Keenable** | Pro, 10 results | Live GET Fetch |
 | **Exa** | Default auto, 10 results + highlights | Full-text `/contents` |
 | **Perplexity** | Standard web, 10 results; no inference model | Not supported |
 | **DeepSeek** | 10 results + content | Native `/v1/tools/fetch` |
 
-Priority is **manual preference → Keenable → Exa → Perplexity → standalone
-DeepSeek → automatic native routing**. Fetch skips
-Perplexity. See [API setup, protocol and privacy details](docs/search-apis.md).
+Parallel is the special top-priority mode: when its API key is enabled, the
+official schema is exposed and routing is locked to Parallel, so other provider
+fallback is intentionally disabled. Use `/web-search-api parallel` to disable
+it before selecting another provider or restoring the normal `query` / `urls`
+schema.
+
+Priority is **Parallel (when active, locked) → manual preference → Keenable → Exa → Perplexity → standalone
+DeepSeek → automatic native routing**. Fetch skips Perplexity. See [API setup,
+protocol and privacy details](docs/search-apis.md).
 
 ## Provider support
 
-Beyond the **four standalone APIs** above, keep access to **10 native provider
+Beyond the **five standalone APIs** above, keep access to **10 native provider
 classes plus Anthropic Messages**, with credential discovery and protocol-specific
 routing:
 
@@ -273,11 +314,12 @@ Provider detection follows the authenticated model's provider/API:
 5. OpenAI-compatible Responses APIs (OpenAI, Azure OpenAI, OpenAI Codex, GitHub Copilot, OpenCode)
 6. Anthropic Messages (Claude)
 
-All four standalone APIs support masked terminal login or environment-key
-fallbacks. `/web-search-api [deepseek|exa|keenable|perplexity]` manages their
-enable/disable settings. The model-facing tool still has only `query` / `urls`.
-See [dedicated API setup](docs/search-apis.md) and the
-[Exa vs Keenable integration notes](docs/search-skills.md).
+All five standalone APIs support masked terminal login or environment-key
+fallbacks. `/web-search-api [parallel|deepseek|exa|keenable|perplexity]` manages
+their enable/disable settings. The model-facing tool uses the normal `query` /
+`urls` contract unless Parallel is active; Parallel exposes its official
+`objective` / `search_queries` / `urls` schema instead. See [dedicated API
+setup](docs/search-apis.md) and the [Exa vs Keenable integration notes](docs/search-skills.md).
 
 See [Providers](docs/providers.md) for request shapes, auth quirks, and URL
 support per family.
@@ -300,11 +342,13 @@ eligible lightweight models that support the selected operation. Choose **Auto**
 Esc leaves the setting unchanged. Selecting a provider does not change the
 conversation model or the model-facing tool schema.
 
-A manual choice is a **preference, not a lock**: the standalone API or newest
-eligible native model is tried first, even after a previous failure or
-Retry-After. Errors, timeouts, or an unavailable provider still fall back to
-remaining candidates. URL fetching still retries only unresolved URLs. Input
-validation and cancellation retain their existing behavior.
+A manual choice is normally a **preference, not a lock**: the standalone API or
+newest eligible native model is tried first, even after a previous failure or
+Retry-After. **Parallel is the exception:** while active, its incompatible
+schema locks both phases to Parallel and disables fallback. Errors, timeouts, or
+an unavailable non-Parallel provider still fall back to remaining candidates.
+URL fetching still retries only unresolved URLs. Input validation and
+cancellation retain their existing behavior.
 
 Choices persist across sessions in `~/.pi/agent/better-web-search-settings.json`
 (respects `PI_CODING_AGENT_DIR`; override with `PI_BETTER_WEB_SEARCH_SETTINGS`):
@@ -330,9 +374,11 @@ are an API-only exception: they use no inference model and need no `flash` id.
 Without an eligible model, pi-authenticated DeepSeek tools, or a standalone API,
 the tool stays hidden; it never silently upgrades to another inference-model tier.
 
-After any explicit provider preference, configured **Keenable → Exa →
-Perplexity → standalone DeepSeek** APIs are tried first (Fetch skips Perplexity),
-followed by this automatic ordering:
+If Parallel is active, it is the sole candidate for both phases and uses the
+official schema; no other provider fallback is attempted. Otherwise, after any
+explicit provider preference, configured **Keenable → Exa → Perplexity →
+standalone DeepSeek** APIs are tried first (Fetch skips Perplexity), followed by
+this automatic ordering:
 
 1. The newest eligible model of the current conversation's provider is tried
    first, subject to provider/model failure cooldowns. The conversation model
@@ -493,10 +539,11 @@ evidence retain their provider values. A search looks like this:
 - Citation markers are not inserted, and no "Sources" or "Additional results"
   sections are appended.
 - Redirects are not resolved and sources are not derived.
-- Known standalone API bookkeeping is omitted: Keenable `mode` and `usage`, Perplexity
-  `id`, and Exa `requestId` / `costDollars` / `searchTime` / `warnings` /
-  `resolvedSearchType`. Provider `server_time` values and Exa `notices` remain
-  available to the model.
+- Known standalone API bookkeeping is omitted: Parallel `search_id`, `usage`,
+  `warnings`, `session_id` and root `metadata`; Keenable `mode` and `usage`,
+  Perplexity `id`, and Exa `requestId` / `costDollars` / `searchTime` /
+  `warnings` / `resolvedSearchType`. Provider `server_time` values and Exa
+  `notices` remain available to the model.
   See [response metadata handling](docs/search-apis.md#interfaces).
 - Unknown provider fields are preserved when the result fits the size guard.
 
@@ -548,8 +595,9 @@ needed.
 - a dedicated search API is configured and usable (no chat model needed).
 
 For model-backed interfaces the same lightweight restriction applies to `urls`;
-standalone Keenable, Exa, and DeepSeek, plus pi-authenticated DeepSeek native
-tools, expose it without a chat-model tier.
+standalone **Parallel, Keenable, Exa, and DeepSeek**, plus pi-authenticated
+DeepSeek native tools, expose it without a chat-model tier. When Parallel is
+active, it uses its official schema and does not fall back to other providers.
 
 For an unsupported current model with no compatible login or API key, the tool
 stays hidden (removed from the active tool set). The extension never calls an
@@ -654,7 +702,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-1.0.4.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-1.0.5.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

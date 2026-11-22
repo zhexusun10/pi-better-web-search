@@ -3,7 +3,7 @@
 **一个工具，所有 provider，原始结果。**
 
 这是一个 [pi](https://pi.dev) 扩展，只新增一个模型可调用的工具：`web_search`。
-使用 **Keenable、Exa、Perplexity 或 DeepSeek** 搜索，在支持时抓取 URL，
+使用 **Parallel、Keenable、Exa、Perplexity 或 DeepSeek** 搜索，在支持时抓取 URL，
 并在已认证的原生 provider 之间自动回退。不换对话模型，provider 数据原样返回。
 
 [![Pi 1.5.2 verified](https://img.shields.io/badge/Pi-1.5.2_verified-blue.svg)](testing.md)
@@ -20,16 +20,17 @@ Agent 调用 `web_search`，传入 query、URLs 或两者。路由器先尊重�
 
 ## Search，是 agent 的巨大 buff
 
-**不搜索：33 分。Keenable Pro：83 分。整整提升 50 分。**
+**不搜索：33 分。Parallel Search（advanced，objective）与 Keenable Pro：83 分。**
+在这张 Artificial Analysis Search Index 快照中，Parallel 已位居最高分；Parallel
+的 fast objective 模式为 82 分，Exa 为 80 分，Perplexity 为 80 分。
 
-Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索的纯模型基线 33 分**；
-**Keenable Pro 达到 83 分**，Exa 和 Perplexity 都达到 **80 分**。
-这三家独立搜索服务均明显高于同一快照中 **OpenAI Web Search 的 74 分**。
+Artificial Analysis Search Index 把差距画得很直观：独立搜索工具把高质量的网页证据
+直接交给 agent，不让模型只依赖记忆。
 
-![Artificial Analysis Search Index：纯模型 33、Keenable Pro 83、Exa auto 80、Perplexity medium 80、OpenAI Web Search 74、DeepSeek summary 69](../assets/search-index.png)
+![Artificial Analysis Search Index：Parallel Search advanced objective 83、Keenable Pro 83、Parallel fast objective 82、Keenable realtime 82、Exa auto 80、Perplexity medium 80、OpenAI Web Search 74、DeepSeek summary 69](../assets/search-index.png)
 
 *来源：[Artificial Analysis Search Index](https://artificialanalysis.ai/agents/search-api)，
-2026 年 11 月 15 日截图；综合 DeepSearchQA F1、BrowseComp 准确率和 AA-Omniscience
+2026 年 11 月 21 日截图；综合 DeepSearchQA F1、BrowseComp 准确率和 AA-Omniscience
 准确率。[评测方法](https://artificialanalysis.ai/methodology/search-api)。*
 
 对 coding agent 来说，互联网就是超大规模的外部工作记忆：官方文档、现成的库、
@@ -42,10 +43,14 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 
 冲着成为你首选的 Web Search 工具而来：
 
-- **搜索专家，而不只是模型厂商的附属搜索。** Keenable Pro、Exa highlights、
-  Perplexity 标准 Web Search，以及 DeepSeek 原生 Search/Fetch。
+- **搜索专家，而不只是模型厂商的附属搜索。** Parallel advanced Search、Keenable Pro、
+  Exa highlights、Perplexity 标准 Web Search，以及 DeepSeek 原生 Search/Fetch。
+- **Parallel 启用时使用官方 agent schema。** Parallel 使用 `objective`、
+  `search_queries` 和 `urls`；由于它与普通的 `query` / `urls` contract 不兼容，
+  启用 Parallel 后路由锁定 Parallel，不会回退到其他 provider。
 - **对话模型与搜索引擎解耦。** 专用 API 不需要注册 chat 模型；终端隐藏输入登录，立即可用。
-- **搜索 → 阅读 → 实现。** 先找到现成方案，再按需抓取一手来源；一个工具，只有 `query` 和可选 `urls`。
+- **搜索 → 阅读 → 实现。** 先找到现成方案，再按需抓取一手来源；普通模式一个工具，只有
+  `query` 和可选 `urls`；Parallel 启用时使用其官方字段。
 - **可靠性不是附加功能。** 搜索/抓取独立首选、跨 provider fallback、健康冷却、逐 URL 恢复；
   失败不能吞掉已经成功的数据。
 - **轻薄、开源、原汁原味。** 原始结果直接返回，不再套一层总结模型；无 MCP、无新增运行时依赖、
@@ -53,7 +58,7 @@ Artificial Analysis Search Index 把差距画得很直观：虚线是**无搜索
 
 ## 安装，登录，开搜
 
-**1.0.4 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.4)。
+**1.0.5 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.5)。
 
 ```bash
 pi install npm:pi-better-web-search
@@ -65,10 +70,17 @@ pi install npm:pi-better-web-search
 /pi-better-web-search login
 ```
 
-选择 **Keenable、Exa、Perplexity 或 DeepSeek**，在隐藏输入框粘贴密钥并按 Enter。
-无需环境变量、重启或对话模型配置。已有合格的原生 provider 登录也能继续作为回退使用。
+选择 **Parallel、Keenable、Exa、Perplexity 或 DeepSeek**，在隐藏输入框粘贴密钥并按 Enter。
+Parallel 会立即使用官方的 `objective` / `search_queries` / `urls` schema。
+无需环境变量、重启或对话模型配置。已有合格的原生 provider 登录，在禁用 Parallel 后也能继续作为回退使用。
 
 试试：*“先搜索官方迁移指南和现成可用的库，不要直接从零实现。”*
+
+> **Parallel 模式有意不同。** 启用 Parallel 后，工具 schema 会从 `query` / `urls`
+> 切换为官方的 `objective` / `search_queries` / `urls`。搜索必须同时提供
+> `objective` 和 1–3 个 `search_queries`；URL 提取可以只传 `urls`，也可以附带
+> `objective`。由于两个 schema 不兼容，路由会锁定 Parallel，不会回退到其他 provider。
+> 运行 `/web-search-api parallel` 并选择 **Disable**，即可恢复普通 schema 和 provider fallback。
 
 也可以从 GitHub 安装最新源码，或使用本地 checkout：
 
@@ -114,7 +126,7 @@ pi install ./path/to/pi-better-web-search
 
 ## 工具语义
 
-运行时 schema 逻辑上为：
+运行时的普通 schema 逻辑上为：
 
 ```ts
 {
@@ -122,6 +134,21 @@ pi install ./path/to/pi-better-web-search
   urls?: string[];
 }
 ```
+
+启用 Parallel 后，schema 会切换为官方格式：
+
+```ts
+{
+  objective?: string;
+  search_queries?: string[]; // 搜索时必填，1–3 条
+  urls?: string[];            // 可单独用于提取
+}
+```
+
+Parallel 搜索必须同时提供 `objective` 和 `search_queries`；URL 提取接受 `urls`，
+并可选 `objective`。启用 Parallel 时传入 `query` 会被拒绝。因为两套 contract
+不兼容，只会路由到 Parallel，不会尝试其他 provider fallback。使用
+`/web-search-api parallel` 禁用后，才会恢复普通 schema。
 
 - `query` 搜索网页，只去掉首尾空白，搜索语法其余部分原样保留。如果选中
   DeepSeek 且 query 超过 128 个 Unicode 字符，工具会直接返回实际长度和上限，
@@ -174,7 +201,7 @@ URL 失败写入 `fetched[].error`。只有请求结构非法或没有任何成�
 /pi-better-web-search login
 ```
 
-选择 **DeepSeek、Exa、Keenable、Perplexity** 中的一个，在隐藏输入框输入 API key，
+选择 **Parallel、DeepSeek、Exa、Keenable、Perplexity** 中的一个，在隐藏输入框输入 API key，
 按 Enter 保存并立即启用；按 Esc 取消。无需设置环境变量、重启或先配置对话模型。
 保存的密钥优先于环境变量，原有手动 provider 首选和 fallback 保持不变。
 
@@ -184,12 +211,13 @@ URL 失败写入 `fetched[].error`。只有请求结构非法或没有任何成�
 命令参数。环境变量方式仍兼容。`/web-search-api` 用于开关接口，
 `/web-search-provider` 用于设置搜索和抓取的首选。Keenable 公共模式仍需单独确认。
 
+- **Parallel**：官方 advanced Search 使用 `objective` + `search_queries`（1–3 条），Extract 使用 `urls` + 可选 `objective`；启用后 schema 和路由锁定 Parallel，不回退到其他 provider。
 - **Perplexity**：只使用 `POST /search`，明确发送 `search_type: "web"`，**不用 fast**，
   不传 `effort`、`preset`、`model` 等参数；不支持 Fetch，不调用 Agent/Orchestrator API。
 - **Keenable**：`mode: "pro"` 搜索，GET + `live=true` 抓取；不用 realtime 快速模式。
 - **Exa**：默认 auto 搜索，10 条结果与 highlights；通过 `/contents` 提取已知页面全文。
 - **DeepSeek**：原生 Search/Fetch，搜索返回 10 条结果及内容。
-- **优先级**：手动首选 → Keenable → Exa → Perplexity → 独立 DeepSeek → 原生自动路由。
+- **优先级**：Parallel 启用时独占并锁定；禁用后为手动首选 → Keenable → Exa → Perplexity → 独立 DeepSeek → 原生自动路由。
   Fetch 跳过 Perplexity；手动首选即使此前失败也会首先重试，原生自动路由保留健康冷却和部分结果。
 - 专用 API 不依赖对话模型，也不受 luna/haiku/flash 名称限制。单独配置 Perplexity 时
   schema 仍只有 `query`；配置 Keenable 或其他 URL-capable provider 后才暴露 `urls`。
@@ -198,7 +226,7 @@ URL 失败写入 `fetched[].error`。只有请求结构非法或没有任何成�
 
 ## Provider 支持
 
-除了上述 **4 家独立搜索 API**，还保留 **10 类原生 provider 与 Anthropic Messages**，
+除了上述 **5 家独立搜索 API**，还保留 **10 类原生 provider 与 Anthropic Messages**，
 自动发现凭据，按各家原生协议调用：
 
 | # | Provider 类别 | 网页搜索 | URL 分析 | 原生协议与端点接口 |
@@ -233,9 +261,10 @@ Provider 识别顺序：
 5. OpenAI-compatible Responses API（OpenAI、Azure OpenAI、OpenAI Codex、GitHub Copilot、OpenCode）
 6. Anthropic Messages（Claude）
 
-四家独立 API 均支持终端隐藏输入登录，也兼容环境变量作为密钥 fallback。
-使用 `/web-search-api [deepseek|exa|keenable|perplexity]` 管理开关。
-模型可见参数仍只有 `query` / `urls`，不暴露各家高级选项。
+五家独立 API 均支持终端隐藏输入登录，也兼容环境变量作为密钥 fallback。
+使用 `/web-search-api [parallel|deepseek|exa|keenable|perplexity]` 管理开关。
+普通模型可见参数仍为 `query` / `urls`；启用 Parallel 时切换为官方的
+`objective` / `search_queries` / `urls` schema。
 详见 [独立 API 配置](search-apis.md) 和 [Exa / Keenable 集成说明](search-skills.md)。
 
 各 provider 的请求形状、鉴权细节和 URL 支持见 [Provider 细节](providers.md)。
@@ -257,10 +286,11 @@ provider；也可以直接打开对应选择器：
 选择 **Auto** 恢复
 自动选择；按 Esc 取消不修改配置。选择不会切换对话模型，也不改变模型可见的工具 schema。
 
-手动选择是**首选，不是锁定**：优先尝试所选独立 API 或该原生 provider 最新的合格轻量模型，
-再尝试已配置的独立 API、当前 provider、成功缓存和其他候选。
-即使此前失败或收到 Retry-After，手动首选仍先尝试一次；失败、超时或不可用时自动 fallback。
-URL 抓取只重试未成功的 URL；输入校验和取消行为保持不变。
+手动选择通常是**首选，不是锁定**：优先尝试所选独立 API 或该原生 provider 最新的合格轻量模型，
+再尝试已配置的独立 API、当前 provider、成功缓存和其他候选。**Parallel 是例外**：启用后
+schema 不兼容，搜索和抓取都锁定 Parallel，不会 fallback 到其他 provider；使用
+`/web-search-api parallel` 禁用后才恢复普通行为。其他 provider 即使此前失败或收到
+Retry-After，仍会自动 fallback；URL 抓取只重试未成功的 URL；输入校验和取消行为保持不变。
 
 配置跨会话保存到 `~/.pi/agent/better-web-search-settings.json`，遵循
 `PI_CODING_AGENT_DIR`，也可以用 `PI_BETTER_WEB_SEARCH_SETTINGS` 覆盖路径：
@@ -469,8 +499,9 @@ PowerShell 使用 `$env:PI_BETTER_WEB_SEARCH_MAX_CHARS = "100000"`。
 - pi 已配置官方 `deepseek` provider 凭据，可调用原生 Search/Fetch，无需可用对话模型或 `flash` id；或
 - 已配置可用的专用 Search API，无需对话模型。
 
-模型接口的 `urls` 暴露也遵守轻量档位限制；独立 Keenable、Exa、DeepSeek，
-以及通过 pi 认证的 DeepSeek 原生工具，无需 chat 模型即可提供 URL 抓取。
+模型接口的 `urls` 暴露也遵守轻量档位限制；独立 **Parallel、Keenable、Exa 和
+DeepSeek**，以及通过 pi 认证的 DeepSeek 原生工具，无需 chat 模型即可提供 URL 抓取。
+启用 Parallel 时使用官方 schema，且不会回退到其他 provider。
 
 当前模型不支持搜索，且没有兼容的登录/API key 时，工具保持隐藏（从 active
 tool set 移除）。扩展不会调用未认证的 provider。可用 provider 或凭据集合变化
@@ -550,7 +581,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-1.0.4.tgz`。不会自动发布。
+`dist/pi-better-web-search-1.0.5.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。

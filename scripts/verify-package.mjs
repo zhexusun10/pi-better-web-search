@@ -71,6 +71,7 @@ const required = [
   "lib/providers/perplexity.ts",
   "lib/providers/keenable.ts",
   "lib/providers/exa.ts",
+  "lib/providers/parallel.ts",
   "lib/render.ts",
   "lib/routes.ts",
   "lib/providers/deepseek.ts",

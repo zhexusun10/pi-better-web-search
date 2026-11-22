@@ -56,7 +56,7 @@ for (const provider of LOGIN_PROVIDERS) {
       });
       await ui.command.handler("login", ui.ctx);
       assert.equal(calls, 0, "login saves without a billable validation call");
-      assert.deepEqual(ui.menus[0].options, ["DeepSeek", "Exa", "Keenable", "Perplexity"]);
+      assert.deepEqual(ui.menus[0].options, ["DeepSeek", "Exa", "Keenable", "Parallel", "Perplexity"]);
       assert.equal(savedApiKey(provider), fakeKey);
       assert.equal(dedicatedKey(provider), fakeKey);
       assert.equal(dedicatedState(provider).keySource, "saved");
@@ -65,7 +65,7 @@ for (const provider of LOGIN_PROVIDERS) {
       assert.equal(getSearchCandidates(resolveResolutionContext(ui.ctx))[0].model.provider, provider);
       assert.ok(ui.pi.getActiveTools().includes("web_search"));
       assert.equal(!!ui.pi.tools.get("web_search").parameters.properties.urls, provider !== "perplexity");
-      const result = await runWebSearch({ query: "test" }, ui.ctx);
+      const result = await runWebSearch(provider === "parallel" ? { objective: "test", search_queries: ["test"] } : { query: "test" }, ui.ctx);
       assert.equal(result.isError, undefined);
       assert.equal(calls, 1);
       assert.doesNotMatch(JSON.stringify([...ui.frames, ...ui.notifications, ...ui.menus]), /unit-test-login-secret/);
@@ -228,7 +228,7 @@ test("RPC/print/no-UI login is refused instead of using an insecure plaintext fa
 
 test("credential writes preserve other providers, serialize concurrent saves and reject a corrupt store", async () => {
   await withTempCache(async () => {
-    assert.deepEqual(await Promise.all(LOGIN_PROVIDERS.map(provider => saveApiKey(provider, `${fakeKey}-${provider}`))), [true, true, true, true]);
+    assert.deepEqual(await Promise.all(LOGIN_PROVIDERS.map(provider => saveApiKey(provider, `${fakeKey}-${provider}`))), [true, true, true, true, true]);
     for (const provider of LOGIN_PROVIDERS) assert.equal(savedApiKey(provider), `${fakeKey}-${provider}`);
     assert.equal(await saveApiKey("exa", "unit-test-rotated"), true);
     assert.equal(savedApiKey("deepseek"), `${fakeKey}-deepseek`);

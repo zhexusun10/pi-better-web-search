@@ -17,7 +17,7 @@ npm run verify:package
   tarball contains runtime sources, docs, assets, and metadata, while excluding
   tests, scripts, CI files, the local reference checkout, and `DESIGN.md`.
 - `npm run build` runs the checks, tests, package verification, and packs
-  `dist/pi-better-web-search-1.0.4.tgz`.
+  `dist/pi-better-web-search-1.0.5.tgz`.
 
 Tests import the TypeScript sources directly. The suite mocks `globalThis.fetch`
 and uses temporary cache directories. Coverage includes:
@@ -26,17 +26,18 @@ and uses temporary cache directories. Coverage includes:
 - capability-aware tool/field guidance, source verification/citation, optional
   search refinement, no invented global query limit or extra parameters, and
   explicit search-to-search-to-fetch calls without an automatic fixed chain;
-- four-provider terminal login with masked typing/paste, cancellation, local-TUI
+- five-provider terminal login with masked typing/paste, cancellation, local-TUI
   gating, immediate API exposure, persisted/env key precedence, safe status and
   logout, independent credential storage, atomic concurrent updates, corrupt
   store/save failure handling and secret-free notifications/settings/cache;
-- dedicated API protocols, standard Perplexity search (no fast/effort/Agent API),
-  Keenable keyed/public pro search and live GET fetch, Exa 10-result highlights
-  search and full-text `/contents` fetch, per-URL statuses, reordered/redirected
-  results, duplicate URLs, source metadata, omission of response-level billing,
-  request tracking and processing time fields, retained provider timestamps such
-  as Perplexity `server_time`, Exa notices and nested same-name fields,
-  standalone exposure, explicit/configured/native ordering and fallback;
+- dedicated API protocols, Parallel advanced Search/Extract with its official
+  `objective` / `search_queries` / `urls` schema and routing lock, standard
+  Perplexity search (no fast/effort/Agent API), Keenable keyed/public pro search
+  and live GET fetch, Exa 10-result highlights search and full-text `/contents`
+  fetch, per-URL statuses, reordered/redirected results, duplicate URLs, source
+  metadata, omission of response-level billing, request tracking and processing
+  time fields, retained provider timestamps such as Perplexity `server_time`,
+  Exa notices and nested same-name fields, standalone exposure, explicit/configured/native ordering and fallback;
 - API configuration menus, public-access consent, secret-free persistence,
   credential redaction and Retry-After seconds/HTTP-date behavior;
 - atomic settings/cache replacement with injected partial-write and rename
@@ -98,13 +99,14 @@ and uses temporary cache directories. Coverage includes:
 
 ```bash
 npm run test:live:search-apis -- all
-# Or select perplexity / keenable / exa instead of all.
+# Or select perplexity / keenable / exa / parallel instead of all.
 ```
 
 This opt-in test prints only HTTP status/response shape, never credentials or
 request headers. It reads saved login keys first, then environment fallbacks
-(`PERPLEXITY_API_KEY`, `EXA_API_KEY`, `KEENABLE_API_KEY`); Perplexity and Exa are
-skipped without either source. Create keys at https://console.perplexity.ai or
+(`PERPLEXITY_API_KEY`, `EXA_API_KEY`, `KEENABLE_API_KEY`, and
+`PARALLEL_API_KEY`); Perplexity, Exa, and Parallel are skipped without either
+source. Create keys at https://console.perplexity.ai or
 https://dashboard.exa.ai/api-keys and use `/pi-better-web-search login` in pi's
 terminal. With a key, the Exa probe checks both highlights search and full-text
 fetch. Keenable uses public endpoints if neither key source is present. It sends only a public example

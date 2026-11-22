@@ -2,7 +2,7 @@ import { savedApiKey } from "./credentials.ts";
 import { redactSecrets } from "./redact.ts";
 
 /** Standalone retrieval services, not conversation model providers. */
-export const DEDICATED_PROVIDERS = ["keenable", "exa", "perplexity", "deepseek"] as const;
+export const DEDICATED_PROVIDERS = ["parallel", "keenable", "exa", "perplexity", "deepseek"] as const;
 export type DedicatedProvider = typeof DEDICATED_PROVIDERS[number];
 export type DedicatedSettings = Partial<Record<DedicatedProvider, boolean>> & {
   /** Login did not consent to anonymous access if the saved key disappears. */
@@ -10,6 +10,7 @@ export type DedicatedSettings = Partial<Record<DedicatedProvider, boolean>> & {
 };
 
 export const DEDICATED_INFO = {
+  parallel: { name: "Parallel Search", env: "PARALLEL_API_KEY", setup: "https://platform.parallel.ai", baseUrl: "https://api.parallel.ai", fetch: true },
   deepseek: { name: "DeepSeek Search/Fetch", env: "DEEPSEEK_API_KEY", setup: "https://platform.deepseek.com/api_keys", baseUrl: "https://api.deepseek.com", fetch: true },
   perplexity: { name: "Perplexity Search", env: "PERPLEXITY_API_KEY", setup: "https://console.perplexity.ai", baseUrl: "https://api.perplexity.ai", fetch: false },
   keenable: { name: "Keenable", env: "KEENABLE_API_KEY", setup: "https://docs.keenable.ai/api-keys", baseUrl: "https://api.keenable.ai", fetch: true },
@@ -34,6 +35,10 @@ export function dedicatedState(provider: DedicatedProvider, settings: DedicatedS
   const enabled = settings[provider] ?? hasKey;
   const keyless = provider === "keenable" && !hasKey && !settings.keenableKeyRequired;
   return { enabled, hasKey, keySource, available: enabled && (hasKey || keyless), keyless };
+}
+
+export function isParallelActive(settings: DedicatedSettings = {}): boolean {
+  return dedicatedState("parallel", settings).available;
 }
 
 export function configuredDedicatedProviders(settings: DedicatedSettings = {}): DedicatedProvider[] {
