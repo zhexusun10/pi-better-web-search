@@ -63,21 +63,21 @@
   <text class="inv-p" x="82" y="370">Keenable</text>
   <text class="inv-d" x="82" y="385">pro search + live fetch</text>
 
-  <rect class="box" x="312" y="352" width="232" height="46" rx="10"/>
-  <text class="p" x="326" y="370">Exa</text>
-  <text class="d" x="326" y="385">highlights search + full-text contents</text>
+  <rect class="accent" x="312" y="352" width="232" height="46" rx="10"/>
+  <text class="inv-p" x="326" y="370">Parallel</text>
+  <text class="inv-d" x="326" y="385">advanced + Extract · no fallback</text>
 
   <rect class="box" x="68" y="406" width="232" height="46" rx="10"/>
-  <text class="p" x="82" y="424">Perplexity</text>
-  <text class="d" x="82" y="439">standard web search · search only</text>
+  <text class="p" x="82" y="424">Exa</text>
+  <text class="d" x="82" y="439">highlights search + full-text contents</text>
 
   <rect class="box" x="312" y="406" width="232" height="46" rx="10"/>
-  <text class="p" x="326" y="424">DeepSeek</text>
-  <text class="d" x="326" y="439">native search + fetch</text>
+  <text class="p" x="326" y="424">Perplexity</text>
+  <text class="d" x="326" y="439">standard web search · search only</text>
 
-  <rect class="accent" x="68" y="454" width="476" height="46" rx="10"/>
-  <text class="inv-p" x="82" y="472">Parallel Search</text>
-  <text class="inv-d" x="82" y="487">advanced objective + search_queries · Extract · schema lock · no fallback</text>
+  <rect class="box" x="68" y="454" width="232" height="46" rx="10"/>
+  <text class="p" x="82" y="472">DeepSeek</text>
+  <text class="d" x="82" y="487">native search + fetch</text>
 
   <rect class="dash" x="604" y="112" width="340" height="350" rx="18"/>
   <text class="h" x="624" y="142">Native adapters</text>
