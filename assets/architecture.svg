@@ -31,7 +31,7 @@
   <rect class="panel" x="20" y="20" width="1160" height="600" rx="22"/>
 
   <text class="title" x="56" y="82">pi-better-web-search</text>
-  <text class="subtitle" x="56" y="116">one tool · search APIs · Parallel schema lock · native fallback · raw results</text>
+  <text class="subtitle" x="56" y="116">one tool · search APIs · native fallback · raw results</text>
 
   <text class="p" x="1140" y="74" text-anchor="end">Pi 1.6.0 verified</text>
 
@@ -47,7 +47,7 @@
   <rect class="box" x="312" y="150" width="250" height="124" rx="16"/>
   <text class="h" x="332" y="180">Candidate router</text>
   <text class="t" x="332" y="208">manual → APIs → native</text>
-  <text class="muted" x="332" y="234">Parallel: official schema + lock</text>
+  <text class="muted" x="332" y="234">Parallel: official schema</text>
   <text class="muted" x="332" y="256">otherwise fallback preferences</text>
 
   <path class="arrow" d="M 562 212 L 598 212"/>

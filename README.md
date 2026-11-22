@@ -17,7 +17,7 @@ providers. Keep your conversation model; get provider results as-is.
 
 ## How it works
 
-![pi-better-web-search: one tool, Parallel and Keenable search APIs, native adapters, Parallel schema lock, and raw results](assets/architecture.svg)
+![pi-better-web-search: one tool, Parallel and Keenable search APIs, native adapters, and raw results](assets/architecture.svg)
 
 Your agent calls `web_search` with the normal `query` / `urls` schema, or with
 Parallel's `objective` / `search_queries` / `urls` schema when Parallel is active.
