@@ -14,6 +14,7 @@ import {
 } from "./candidates.ts";
 import { writeCache, type PreferenceCache, type ProviderRef } from "./cache.ts";
 import {
+  currentUtcTime,
   formatError,
   formatSuccess,
   truncateText,
@@ -751,7 +752,7 @@ export async function runWebSearch(
   }
 
   const visibleSearchError = searchFailure ? limitErrorMessage(searchFailure) : undefined;
-  const output: WebSearchOutput = {};
+  const output: WebSearchOutput = { current_time: currentUtcTime() };
   if (searchSuccess) {
     output.search = { ...searchSuccess.result };
   } else if (visibleSearchError) {

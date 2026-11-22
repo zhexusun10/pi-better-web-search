@@ -59,7 +59,7 @@ Artificial Analysis Search Index 把差距画得很直观：独立搜索工具�
 
 ## 安装，登录，开搜
 
-**1.0.5 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.5)。
+**1.0.6 已可用。** [查看更新说明与下载安装包](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.6)。
 
 ```bash
 pi install npm:pi-better-web-search
@@ -582,7 +582,7 @@ npm run build
 ```
 
 `npm run build` 会运行检查、测试、包内容验证，并生成
-`dist/pi-better-web-search-1.0.5.tgz`。不会自动发布。
+`dist/pi-better-web-search-1.0.6.tgz`。不会自动发布。
 
 测试是 `.mjs` 文件，直接导入 `.ts` 源码，mock `globalThis.fetch`，使用临时缓存
 目录。详见 [测试](testing.md) 和 [发布](publishing.md)。

@@ -49,7 +49,9 @@ test("Exa search omits API bookkeeping while preserving highlights, notices and 
     t.mock.method(context.modelRegistry, "getApiKeyAndHeaders", () => assert.fail("Exa must not need a chat-model credential"));
     const result = await runWebSearch({ query: " natural language query " }, context);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), { search });
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, { current_time: parsed.current_time, search });
     assert.deepEqual(result.details.routes, [{ phase: "search", provider: "exa", endpoint: "/search" }]);
     assert.equal(result.details.resultCount, 1);
     assert.equal(readCache().search.provider, "exa");

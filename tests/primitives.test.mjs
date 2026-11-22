@@ -62,6 +62,7 @@ import {
 } from "../lib/schema.ts";
 import {
   MAX_OUTPUT_CHARS,
+  currentUtcTime,
   formatError,
   formatSuccess,
   truncateText,
@@ -207,6 +208,9 @@ test("truncateText is Unicode-safe and format helpers only wrap JSON", () => {
   assert.deepEqual(Object.keys(truncatedOutput), ["query"]);
   assert.ok(truncatedOutput.query.length < MAX_OUTPUT_CHARS + 100);
   assert.match(truncatedOutput.query, /^x+$/);
+
+  assert.equal(currentUtcTime(new Date("2026-10-22T02:08:37.987Z")), "2026-10-22T02:08:37Z");
+  assert.match(currentUtcTime(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
   const error = formatError("all providers failed", { attempts: [], error: "all providers failed" });
   assert.deepEqual(error.content, [{ type: "text", text: "Failed: all providers failed" }]);

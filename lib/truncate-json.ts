@@ -11,7 +11,7 @@ interface Slot {
 
 const TRUNCATION_MARKER = "[truncated]";
 const IDENTITY_KEYS = ["url", "uri", "href", "link", "title", "name", "id", "error", "status", "query", "answer", "content", "text"];
-const IMPORTANT_KEYS = [...IDENTITY_KEYS, "search", "fetched", "results", "data"];
+const IMPORTANT_KEYS = [...IDENTITY_KEYS, "current_time", "search", "fetched", "results", "data"];
 const KEY_PRIORITY = new Map(IMPORTANT_KEYS.map((key, index) => [key, index]));
 
 /** Link and identity fields are kept intact or their containing entry is omitted. */

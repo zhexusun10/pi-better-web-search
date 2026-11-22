@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.6 — Add top-level UTC current_time to web_search output
+
+### Added
+
+- Add a top-level `current_time` field (`YYYY-MM-DDTHH:MM:SSZ`, UTC) to
+  successful `web_search` tool responses so models have a consistent time
+  anchor aligned with provider timestamps (`published_at`, `acquired_at`) without
+  modifying the host system prompt.
+- Prioritize `current_time` during structured JSON truncation so the timestamp
+  is preserved under tight output budgets.
+
 ## 1.0.5 — Add Parallel Search
 
 ### Added

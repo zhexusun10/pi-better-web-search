@@ -31,7 +31,9 @@ test("Exa URL-only fetch batches /contents with top-level text, raw documents an
     const result = await runWebSearch({ urls: [page, other] }, ctx());
     assert.equal(result.isError, undefined);
     assert.equal(mock.mock.callCount(), 1);
-    assert.deepEqual(JSON.parse(result.content[0].text), { fetched: pages.map((data, i) => ({ url: [page, other][i], data })) });
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, { current_time: parsed.current_time, fetched: pages.map((data, i) => ({ url: [page, other][i], data })) });
     assert.deepEqual(result.details.routes, [{ phase: "fetch", provider: "exa", endpoint: "/contents" }]);
     assert.equal(result.details.fetchedCount, 2);
     assert.deepEqual(readCache().fetch, { provider: "exa", model: "search-fetch" });
@@ -56,7 +58,9 @@ test("Exa combined calls keep search highlights separate from full-text fetch", 
     const result = await runWebSearch({ query: "query", urls: [page] }, ctx());
     assert.equal(result.isError, undefined);
     assert.deepEqual(calls, ["/search", "/contents"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), { search, fetched: [{ url: page, data: document }] });
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, { current_time: parsed.current_time, search, fetched: [{ url: page, data: document }] });
     assert.deepEqual(result.details.routes, [
       { phase: "search", provider: "exa", endpoint: "/search" },
       { phase: "fetch", provider: "exa", endpoint: "/contents" },

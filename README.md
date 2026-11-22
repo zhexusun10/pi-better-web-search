@@ -73,7 +73,7 @@ Built to be the web-search tool you reach for first:
 
 ## Install and search
 
-**Version 1.0.5 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.5).
+**Version 1.0.6 is available.** [Release notes and package download](https://github.com/zhexusun10/pi-better-web-search/releases/tag/v1.0.6).
 
 ```bash
 pi install npm:pi-better-web-search
@@ -717,7 +717,7 @@ npm run build
 ```
 
 `npm run build` runs the checks and tests, verifies the npm file list, and packs
-`dist/pi-better-web-search-1.0.5.tgz`. Nothing is published automatically.
+`dist/pi-better-web-search-1.0.6.tgz`. Nothing is published automatically.
 
 The test suite uses plain `.mjs` files that import the `.ts` sources directly.
 It mocks `globalThis.fetch`, uses a temporary cache file, and exercises

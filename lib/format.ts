@@ -8,6 +8,7 @@ export const MAX_OUTPUT_CHARS =
     : 96_000;
 
 export interface WebSearchOutput {
+  current_time?: string;
   search?: {
     /** Search failed while another requested operation succeeded. */
     error?: string;
@@ -67,6 +68,10 @@ export function truncateText(
   const characters = Array.from(text);
   if (characters.length <= limit) return { text, truncated: false };
   return { text: characters.slice(0, limit).join(""), truncated: true };
+}
+
+export function currentUtcTime(now: Date = new Date()): string {
+  return now.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 export function formatSuccess(

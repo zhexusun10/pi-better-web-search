@@ -162,7 +162,10 @@ test("fallback: unsupported current model uses DeepSeek first and remembers it",
 
     const first = await runWebSearch({ query: "first query" }, ctx);
     assert.equal(first.isError, undefined);
-    assert.deepEqual(JSON.parse(first.content[0].text), {
+    const firstParsed = JSON.parse(first.content[0].text);
+    assert.match(firstParsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(firstParsed, {
+      current_time: firstParsed.current_time,
       search: {
         results: rawResults,
       },
@@ -305,7 +308,10 @@ test("concurrent DeepSeek queries reject only the ones over 128 Unicode characte
       assert.deepEqual(result.details.attempts, []);
     }
     assert.equal(results[2].isError, undefined);
-    assert.deepEqual(JSON.parse(results[2].content[0].text), {
+    const thirdParsed = JSON.parse(results[2].content[0].text);
+    assert.match(thirdParsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(thirdParsed, {
+      current_time: thirdParsed.current_time,
       search: { results: [{ title: "result" }] },
     });
     assert.deepEqual(sentQueries, [queries[2]]);
@@ -600,7 +606,10 @@ test("URL-only requests use DeepSeek Fetch and return the raw payload", async (t
 
     const result = await runWebSearch({ urls: ["https://example.com/page"] }, ctx);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), {
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, {
+      current_time: parsed.current_time,
       fetched: [
         {
           url: "https://example.com/page",
@@ -797,11 +806,12 @@ test("oversized output is truncated at the configured character limit", async (t
     assert.ok(Array.from(result.content[0].text).length <= MAX_OUTPUT_CHARS);
     const text = result.content[0].text;
     const suffix = "\n[truncated]";
-    assert.ok(text.startsWith('{"search":'));
+    assert.ok(text.startsWith('{"current_time":'));
     assert.ok(text.endsWith(suffix));
     assert.equal(text.match(/\[truncated\]/g)?.length, 1);
     const output = JSON.parse(text.slice(0, -suffix.length));
-    assert.deepEqual(Object.keys(output), ["search"]);
+    assert.deepEqual(Object.keys(output), ["current_time", "search"]);
+    assert.match(output.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     assert.equal(output.search.results[0].title, "Huge");
     assert.equal(output.search.results[0].url, longUrl);
     assert.ok(output.search.results[0].content.length < hugeContent.length);

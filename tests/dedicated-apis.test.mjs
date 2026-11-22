@@ -44,7 +44,9 @@ test("Perplexity standard Search API preserves server_time and source dates whil
     t.mock.method(ctx.modelRegistry, "getApiKeyAndHeaders", () => assert.fail("no model credentials should be used"));
     const result = await runWebSearch({ query: "query" }, ctx);
     assert.equal(result.isError, undefined);
-    assert.deepEqual(JSON.parse(result.content[0].text), { search });
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, { current_time: parsed.current_time, search });
     assert.deepEqual(result.details.routes, [{ phase: "search", provider: "perplexity", endpoint: "/search" }]);
     assert.equal(perplexityAdapter.fetch, undefined);
     assert.equal(perplexityAdapter.supportsUrls, false);
@@ -98,7 +100,9 @@ test("keyed Keenable omits search mode and search/fetch billing while preserving
     const result = await runWebSearch({ query: "query", urls: [page] }, apiContext());
     assert.equal(result.isError, undefined);
     assert.deepEqual(methods, ["POST", "GET"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), { search, fetched: [{ url: page, data: document }] });
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, { current_time: parsed.current_time, search, fetched: [{ url: page, data: document }] });
   });
 });
 
@@ -117,7 +121,10 @@ test("Keenable public access is opt-in and uses documented public paths and appl
     const result = await runWebSearch({ query: "query", urls: [page] }, apiContext());
     assert.equal(result.isError, undefined);
     assert.deepEqual(paths, ["/v1/search/public", "/v1/fetch/public"]);
-    assert.deepEqual(JSON.parse(result.content[0].text), {
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.current_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.deepEqual(parsed, {
+      current_time: parsed.current_time,
       search: { results: [] }, fetched: [{ url: page, data: { url: page, content: "public page" } }],
     });
     const pi = createMockPi();
