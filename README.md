@@ -17,12 +17,14 @@ providers. Keep your conversation model; get provider results as-is.
 
 ## How it works
 
-![pi-better-web-search: one tool, standalone search APIs, native provider fallback, and raw results](assets/architecture.svg)
+![pi-better-web-search: one tool, Parallel and Keenable search APIs, native adapters, Parallel schema lock, and raw results](assets/architecture.svg)
 
-Your agent calls `web_search` with a query, URLs, or both. The router honors
-per-phase provider preferences, tries configured search APIs, and falls back to
-eligible native providers. Search and fetch keep their successful results
-independently; raw provider data goes straight back to the agent.
+Your agent calls `web_search` with the normal `query` / `urls` schema, or with
+Parallel's `objective` / `search_queries` / `urls` schema when Parallel is active.
+The router honors per-phase provider preferences, prioritizes Keenable and
+Parallel, and falls back to eligible native providers only in normal mode.
+Search and fetch keep their successful results independently; raw provider data
+goes straight back to the agent.
 
 ## Search is an agent superpower
 
@@ -62,7 +64,8 @@ Built to be the web-search tool you reach for first:
 - **Your model, your search engine.** Standalone APIs work independently of the
   conversation model. Log in once in a masked terminal dialog and start searching.
 - **Search → read → build.** Search for solutions, fetch the primary sources,
-  and implement with evidence. One tool, just `query` and optional `urls`.
+  and implement with evidence. One tool uses `query` / `urls` normally, or
+  Parallel's `objective` / `search_queries` / `urls` schema when Parallel is active.
 - **Resilient by design.** Independent search/fetch preferences, automatic
   cross-provider fallback, cooldowns, and per-URL recovery that keeps successes.
 - **A thin, open-source integration.** Raw provider results, no extra synthesis
@@ -177,26 +180,38 @@ is active. Since the two contracts are incompatible, only Parallel is routed
 and no other provider fallback is attempted. Disable Parallel with
 `/web-search-api parallel` to return to the normal schema.
 
-- `query` searches the web. Outer whitespace is trimmed; search operators are
-  otherwise passed through unchanged. If DeepSeek is selected and the query
-  exceeds 128 Unicode characters, the tool returns an error with the actual
-  length and limit, asking the model to shorten the query and retry. It does not
-  send the query or silently truncate it. Other providers may accept longer queries.
-- `urls` analyzes the listed pages. URLs can be used **alone** or together with
-  `query`. A query plus URLs performs a separate web search and then analyzes
-  the URLs. Omit `query` when only fetching the supplied URLs.
+| Mode | Model-facing fields | Search input | URL extraction | Routing |
+|---|---|---|---|---|
+| Normal | `query`, optional `urls` | A non-empty `query` | `urls` alone or with `query` | Provider fallback enabled |
+| Parallel active | `objective`, `search_queries`, optional `urls` | `objective` + 1–3 `search_queries` | `urls` alone or with optional `objective` | Parallel only; no fallback |
+
+The bullets below describe the normal schema unless they explicitly mention
+Parallel.
+
+- `query` searches the web in normal mode. Outer whitespace is trimmed; search
+  operators are otherwise passed through unchanged. If DeepSeek is selected and
+  the query exceeds 128 Unicode characters, the tool returns an error with the
+  actual length and limit, asking the model to shorten the query and retry. It
+  does not send the query or silently truncate it. Other providers may accept
+  longer queries. Parallel search uses `objective` and `search_queries` instead.
+- In normal mode, `urls` analyzes the listed pages. URLs can be used **alone** or
+  together with `query`. A query plus URLs performs a separate web search and then
+  analyzes the URLs. Omit `query` when only fetching the supplied URLs. In Parallel
+  mode, use `urls` alone or add the optional `objective`; do not send `query`.
 - If supplied, `urls` must contain **1–20** non-empty strings, each at most
   **8192 Unicode characters**.
 - Both schema variants reject extra arguments (`additionalProperties: false`);
   runtime validation also rejects unknown fields such as `model`, `provider`,
   and `mode` before any provider request.
-- At least one non-empty `query` or one valid URL is required. This rule is
-  enforced at runtime rather than with a top-level `anyOf`, for compatibility
-  with all model providers.
+- The normal schema requires at least one non-empty `query` or one valid URL;
+  the Parallel schema requires a valid URL or both `objective` and
+  `search_queries`. These rules are enforced at runtime rather than with a
+  top-level `anyOf`, for compatibility with all model providers.
 - The `urls` field is hidden when no usable interface supports URL analysis. In
   that configuration `query` is required, and its description contains no
   URL/fetch guidance.
-- Search and URL analysis may use different providers in the same call.
+- Search and URL analysis may use different providers in normal mode. Parallel
+  mode intentionally uses Parallel for both phases and does not fall back.
 - Research can use explicit follow-up calls: search, inspect the evidence, refine
   the query if needed, then fetch relevant sources when available. There is no
   automatic fixed search chain or global query-length cap from the skills; see
@@ -236,8 +251,8 @@ catalog is empty or has no `flash` model. Select it with `/web-search-provider f
 or `/web-search-provider search`. No inference model is invoked and no key is copied.
 Third-party gateways merely hosting DeepSeek models are not treated as the official API.
 
-Run **`/pi-better-web-search login`** in pi's terminal, choose **DeepSeek, Exa,
-Keenable, or Perplexity**, then paste/type the API key into the **hidden input**
+Run **`/pi-better-web-search login`** in pi's terminal, choose **Parallel, Keenable,
+Exa, Perplexity, or DeepSeek**, then paste/type the API key into the **hidden input**
 and press Enter. The key is saved separately from settings/cache, and the API
 becomes available immediately without restarting pi or configuring a chat model.
 Saved keys override environment keys. Esc cancels without changing anything.

@@ -12,10 +12,11 @@
 
 ## 插件具体在做什么
 
-![pi-better-web-search：一个工具、独立搜索 API、原生 provider 回退与原始结果](../assets/architecture.svg)
+![pi-better-web-search：一个工具、Parallel 与 Keenable 搜索 API、原生 adapter、Parallel schema 锁定与原始结果](../assets/architecture.svg)
 
-Agent 调用 `web_search`，传入 query、URLs 或两者。路由器先尊重搜索/抓取各自的
-手动首选，再尝试已配置的搜索 API，必要时回退到合格的原生 provider。
+Agent 调用 `web_search`：普通模式传入 `query` / `urls`，启用 Parallel 时传入
+Parallel 的 `objective` / `search_queries` / `urls`。路由器尊重各阶段的 provider 首选，
+重点使用 Keenable 和 Parallel；只有普通模式才会回退到合格的原生 provider。
 搜索和抓取分别保留成功结果，provider 的原始数据直接交回 agent。
 
 ## Search，是 agent 的巨大 buff
